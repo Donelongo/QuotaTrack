@@ -258,6 +258,8 @@ def fmt_reset(reset, rolled, estimated, now):
     if reset - now < 24 * 3600 * 1000:
         return f"Resets in {approx}{fmt_span(reset - now)}"
     d = dt.datetime.fromtimestamp(reset / 1000)
+    if reset - now >= 6 * 24 * 3600 * 1000:  # a weekday alone could mean this week or next
+        return f"Resets {approx}{d:%a}, {d:%b} {d.day}"
     return f"Resets {approx}{d:%a} {d.hour % 12 or 12}:{d:%M} {d:%p}"
 
 
@@ -875,35 +877,45 @@ class App:
     # --- data ---
 
     def worker(self):
-        """Usage every POLL_SECS (or on a refresh click); activity every ACTIVITY_SECS, since it changes by the second."""
-        last_usage = 0.0
-        while True:
-            usage_due = self.wake.is_set() or time.time() - last_usage >= POLL_SECS
-            self.wake.clear()
-            for p in list(self.providers):  # a copy: AIs can be added or removed meanwhile
-                if p.module is None:
-                    continue
-                if usage_due:
-                    available = p.check_available()
-                    if available != p.visible:
-                        self.results.put(("available", p.key, available, None))
-                    if not available:
-                        continue
-                elif not p.visible:
-                    continue
-                if usage_due and hasattr(p.module, "read"):
+        """Usage every POLL_SECS (or on a refresh click), each AI on its own thread so a slow one (a web request,
+        Antigravity's process search) never holds up the others. Activity runs on its own loop every ACTIVITY_SECS."""
+        threading.Thread(target=self.activity_worker, daemon=True).start()
+        reading = set()  # keys whose read is still running
+        lock = threading.Lock()
+
+        def read_one(p):
+            try:
+                available = p.check_available()
+                if available != p.visible:
+                    self.results.put(("available", p.key, available, None))
+                if available and hasattr(p.module, "read"):
                     try:
                         self.results.put(("usage", p.key, normalize(p.module.read()), None))
                     except Exception as e:
                         self.results.put(("usage", p.key, None, (str(e).strip() or type(e).__name__)[:200]))
-                if hasattr(p.module, "activity"):
+            finally:
+                with lock:
+                    reading.discard(p.key)
+
+        while True:
+            for p in list(self.providers):  # a copy: AIs can be added or removed meanwhile
+                with lock:
+                    if p.module is None or p.key in reading:
+                        continue
+                    reading.add(p.key)
+                threading.Thread(target=read_one, args=(p,), daemon=True).start()
+            self.wake.wait(POLL_SECS)
+            self.wake.clear()
+
+    def activity_worker(self):
+        while True:
+            for p in list(self.providers):
+                if p.module is not None and p.visible and hasattr(p.module, "activity"):
                     try:
                         self.results.put(("activity", p.key, normalize_sessions(p.module.activity()), None))
                     except Exception:
                         pass  # keep the last known sessions rather than flicker them away
-            if usage_due:
-                last_usage = time.time()
-            self.wake.wait(ACTIVITY_SECS)
+            time.sleep(ACTIVITY_SECS)
 
     def apply_results(self):
         changed = False
@@ -1127,9 +1139,11 @@ class App:
             y += px(40)
         for win in windows:
             used, reset, rolled = effective(win, now)
-            c.create_text(pad, y, text=win["label"], fill=TEXT, font=self.f_label, anchor="nw")
-            c.create_text(w - pad, y + px(1), text=fmt_reset(reset, rolled, win["estimated"], now),
-                          fill=DIM, font=self.f_small, anchor="ne")
+            reset_text = fmt_reset(reset, rolled, win["estimated"], now)
+            room = inner - self.f_small.measure(reset_text) - px(10)
+            c.create_text(pad, y, text=self.fit(win["label"], self.f_label, room), fill=TEXT, font=self.f_label,
+                          anchor="nw")
+            c.create_text(w - pad, y + px(1), text=reset_text, fill=DIM, font=self.f_small, anchor="ne")
             y += px(20)
             c.create_image(pad, y, image=bar_image(inner, px(6), (used or 0) / 100, level_color(used)), anchor="nw")
             y += px(11)

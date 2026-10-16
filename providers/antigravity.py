@@ -160,8 +160,13 @@ def read():
     now = time.time()
     if now - _state["last_try"] >= EVERY or not _state["result"]:
         _state["last_try"] = now
-        found = _discover()
+        # Finding the process is slow (Windows' process query takes seconds), so the last address found is tried
+        # first and the search only runs again when it stops answering, e.g. after Antigravity restarts.
+        found = _state["endpoint"]
         windows = _ask(*found) if found else None
+        if not windows:
+            found = _state["endpoint"] = _discover()
+            windows = _ask(*found) if found else None
         if windows:
             _state["result"] = {"windows": windows, "updated": now, "note": "From Antigravity on this PC"}
             try:
