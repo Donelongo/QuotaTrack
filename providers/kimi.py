@@ -1,6 +1,6 @@
 """Kimi Code: the 5-hour and weekly limits of your Kimi Code plan.
 
-Kimi Code keeps no usage figures on your PC, so this needs live mode (off unless you turn it on from Quota Rail's
+Kimi Code keeps no usage figures on your PC, so this needs live mode (off unless you turn it on from QuotaTrack's
 right-click menu). It then reads the login the Kimi Code CLI saved in ~/.kimi-code/credentials/kimi-code.json
 (access_token only; it never refreshes or writes the file) and sends it to https://api.kimi.com and nowhere
 else: redirects are refused, so the token can't be forwarded. It asks at most every 5 minutes.
@@ -66,7 +66,7 @@ def _fetch():
     if not LIVE_URL.startswith("https://api.kimi.com/"):
         raise RuntimeError("The live address must be on https://api.kimi.com, so your login isn't sent there.")
     request = urllib.request.Request(LIVE_URL, headers={
-        "Authorization": f"Bearer {_token()}", "Accept": "application/json", "User-Agent": "quota-rail"})
+        "Authorization": f"Bearer {_token()}", "Accept": "application/json", "User-Agent": "quotatrack"})
     try:
         with _opener.open(request, timeout=15) as response:
             return json.load(response)

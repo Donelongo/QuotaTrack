@@ -1,10 +1,10 @@
-"""AIs you add from Quota Rail's right-click menu ("Add an AI…"), with no code.
+"""AIs you add from QuotaTrack's right-click menu ("Add an AI…"), with no code.
 
-Each one is saved in custom_ais.json next to quotarail.pyw (kept out of git, since it can hold an API key) and gets
+Each one is saved in custom_ais.json next to quotatrack.pyw (kept out of git, since it can hold an API key) and gets
 its numbers one of three ways:
   manual  you type in how much you've used and when it resets; click its ring to update them
-  web     Quota Rail fetches a web address that returns JSON (with an optional header, such as an API key)
-  file    Quota Rail reads a JSON file on this PC that another tool keeps up to date
+  web     QuotaTrack fetches a web address that returns JSON (with an optional header, such as an API key)
+  file    QuotaTrack reads a JSON file on this PC that another tool keeps up to date
 For web and file, you name the fields holding the numbers as paths into the JSON, like data.usage.percent or
 limits[0].used, optionally with the field it's "out of" and the field holding the reset time.
 """
@@ -67,7 +67,7 @@ def parse_reset(text, now=None):
             when += dt.timedelta(days=1)
         return when.timestamp()
     except ValueError:
-        raise ValueError(f'Quota Rail can\'t read the reset time "{text}". Try 3h, 2d 4h, 18:30 or 2026-10-22 14:00.')
+        raise ValueError(f'QuotaTrack can\'t read the reset time "{text}". Try 3h, 2d 4h, 18:30 or 2026-10-22 14:00.')
 
 
 def format_reset(epoch):
@@ -142,7 +142,7 @@ def fetch(entry):
     url = (entry.get("url") or "").strip()
     if not re.match(r"^https?://", url, re.I):
         raise RuntimeError("The address must start with https:// (or http://).")
-    headers = {"Accept": "application/json", "User-Agent": "quota-rail"}
+    headers = {"Accept": "application/json", "User-Agent": "quotatrack"}
     header = (entry.get("header") or "").strip()
     if header:
         if ":" not in header:
@@ -196,7 +196,7 @@ def windows_from(entry, data):
 
 
 class CustomAI:
-    """Looks like a provider module to Quota Rail: NAME, ORDER, ICON and read()."""
+    """Looks like a provider module to QuotaTrack: NAME, ORDER, ICON and read()."""
 
     def __init__(self, entry, order):
         self.entry = entry

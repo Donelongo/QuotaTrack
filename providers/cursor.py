@@ -1,6 +1,6 @@
 """Cursor: how much of your plan's included usage you've used this billing cycle.
 
-Live mode (off unless you turn it on in Quota Rail's menu) reads the sign-in the Cursor editor keeps in its own
+Live mode (off unless you turn it on in QuotaTrack's menu) reads the sign-in the Cursor editor keeps in its own
 settings database (state.vscdb: cursorAuth/accessToken, read only) and sends it only to
 https://cursor.com/api/usage-summary, the figures behind Cursor's own "Included usage · N% used". See _live.py
 for the rules every live provider follows.
@@ -108,5 +108,5 @@ def _fetch():
 
 def read():
     if not settings.get("live"):
-        raise RuntimeError("Turn on Cursor's live usage in Quota Rail's menu to see it.")
+        raise RuntimeError("Turn on Cursor's live usage in QuotaTrack's menu to see it.")
     return _throttle.get(_fetch, "Waiting to ask cursor.com again.")

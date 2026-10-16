@@ -1,8 +1,8 @@
-"""Template for adding another AI to Quota Rail.
+"""Template for adding another AI to QuotaTrack.
 
 1. Copy this file to providers/<name>.py (no leading underscore, or it is skipped).
 2. Fill in read() so it returns how much of each limit you have used.
-3. Restart Quota Rail.
+3. Restart QuotaTrack.
 
 read() runs every 30 seconds on a background thread, so it may read files or call an API.
 If it can't get the figures, raise an exception with a short message; the card shows it.
@@ -13,8 +13,8 @@ NAME = "My AI"   # shown in the hover card title
 ORDER = 50       # position in the column; lower is higher up (Claude is 10, Codex 20)
 ICON = None      # None shows the first letter of NAME; or a PNG file in this folder, e.g. "myai.png"
 
-# Optional on/off switches, shown in Quota Rail's right-click menu as "<NAME>: <label>".
-# Quota Rail saves the choices and puts them in `settings` before each call, e.g. settings.get("live").
+# Optional on/off switches, shown in QuotaTrack's right-click menu as "<NAME>: <label>".
+# QuotaTrack saves the choices and puts them in `settings` before each call, e.g. settings.get("live").
 SETTINGS = {}    # e.g. {"live": ("Fetch live usage", False)}
 settings = {}
 # REQUIRES = "live"   # optional: no ring until that switch is on (for an AI that can only show live usage)

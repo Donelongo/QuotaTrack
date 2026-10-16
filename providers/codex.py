@@ -8,7 +8,7 @@ times. No token, no network: the figures are as of your last Codex message, so u
 Which log is newest is decided by the timestamps inside the logs, not by the files' modified times: on Windows
 a log Codex still has open keeps an old modified time, and resumed threads append to logs from earlier days.
 
-Live mode (off unless you turn it on from Quota Rail's right-click menu): asks chatgpt.com for your usage right
+Live mode (off unless you turn it on from QuotaTrack's right-click menu): asks chatgpt.com for your usage right
 now, the same figures the Codex app's "Usage remaining" menu shows. It reads your Codex login from
 ~/.codex/auth.json (access_token and account_id only; it never refreshes or writes the file) and sends it to
 https://chatgpt.com and nowhere else: redirects are refused, so the token can't be forwarded. It asks at most
@@ -29,7 +29,7 @@ NAME = "Codex"
 ORDER = 20
 ICON = "codex"
 
-# Shown as switches in Quota Rail's right-click menu; Quota Rail puts the chosen values in `settings` before each read.
+# Shown as switches in QuotaTrack's right-click menu; QuotaTrack puts the chosen values in `settings` before each read.
 SETTINGS = {"live": ("Live usage from chatgpt.com (uses your Codex login)", False)}
 settings = {}
 
@@ -144,7 +144,7 @@ def _fetch_live():
         "ChatGPT-Account-Id": account,
         "Accept": "application/json",
         "Cache-Control": "no-cache",
-        "User-Agent": "quota-rail",
+        "User-Agent": "quotatrack",
     })
     try:
         with _opener.open(request, timeout=15) as response:

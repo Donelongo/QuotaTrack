@@ -1,6 +1,6 @@
 """GitHub Copilot: your monthly premium requests, chat and completions quotas.
 
-Live mode (off unless you turn it on in Quota Rail's menu) uses the GitHub sign-in already on this PC: GH_TOKEN or
+Live mode (off unless you turn it on in QuotaTrack's menu) uses the GitHub sign-in already on this PC: GH_TOKEN or
 GITHUB_TOKEN if set, else the GitHub CLI's (its hosts.yml, or `gh auth token` when the CLI keeps it in the
 system's credential store). It's read only and sent only to https://api.github.com/copilot_internal/user, the
 quota panel GitHub's own editors show. See _live.py for the rules every live provider follows.
@@ -131,5 +131,5 @@ def _fetch():
 
 def read():
     if not settings.get("live"):
-        raise RuntimeError("Turn on Copilot's live usage in Quota Rail's menu to see it.")
+        raise RuntimeError("Turn on Copilot's live usage in QuotaTrack's menu to see it.")
     return _throttle.get(_fetch, "Waiting to ask GitHub again.")

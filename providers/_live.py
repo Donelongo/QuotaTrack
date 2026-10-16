@@ -26,7 +26,7 @@ def get_json(url, headers, allowed_prefix, service, expired_message):
     """GET url as JSON. url must start with allowed_prefix (an https:// origin and path)."""
     if not url.startswith(allowed_prefix):
         raise RuntimeError(f"The live address must be on {allowed_prefix}, so your sign-in isn't sent there.")
-    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "quota-rail",
+    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "quotatrack",
                                                    **headers})
     try:
         with _opener.open(request, timeout=15) as response:

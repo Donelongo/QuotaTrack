@@ -3,7 +3,7 @@
 Untested: written from the Grok CLI's documented session file and endpoint, but not yet run against a real
 account, since Grok CLI wasn't installed where this was built. If it misreads, the card says what went wrong.
 
-Live mode (off unless you turn it on in Quota Rail's menu) reads the session Grok CLI saved in ~/.grok/auth.json
+Live mode (off unless you turn it on in QuotaTrack's menu) reads the session Grok CLI saved in ~/.grok/auth.json
 (only an entry issued by auth.x.ai itself; read only, and the CLI renews it) and sends it only to
 https://cli-chat-proxy.grok.com/v1/billing, the figures the CLI's own /usage shows. See _live.py for the rules
 every live provider follows.
@@ -76,5 +76,5 @@ def _fetch():
 
 def read():
     if not settings.get("live"):
-        raise RuntimeError("Turn on Grok's live usage in Quota Rail's menu to see it.")
+        raise RuntimeError("Turn on Grok's live usage in QuotaTrack's menu to see it.")
     return _throttle.get(_fetch, "Waiting to ask grok.com again.")

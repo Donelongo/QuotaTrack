@@ -1,4 +1,4 @@
-"""Quota Rail: your AI usage limits, pinned to the edge of the screen.
+"""QuotaTrack: your AI usage limits, pinned to the edge of the screen.
 
 Every AI is one small file in the providers folder. The built-in ones read only files the AI apps already
 write on this PC (no network, no tokens):
@@ -9,8 +9,8 @@ To add another AI, copy providers/_template.py to providers/<name>.py and fill i
 Hover a ring for its limits and reset times. Click a ring to refresh, drag the column to move it along
 the edge, right-click for options.
 
-Windows:  pythonw quotarail.pyw          (no console window)
-macOS:    python3 quotarail.pyw          (needs Python with Tk 8.6+: python.org's installer, or
+Windows:  pythonw quotatrack.pyw          (no console window)
+macOS:    python3 quotatrack.pyw          (needs Python with Tk 8.6+: python.org's installer, or
                                       Homebrew's python plus `brew install python-tk`)
 Demo:     add --demo to show sample figures
 """
@@ -205,7 +205,7 @@ def load_providers():
         if not fn.endswith(".py") or fn.startswith("_"):
             continue
         key = fn[:-3]
-        spec = importlib.util.spec_from_file_location(f"quotarail_provider_{key}", os.path.join(PROVIDERS_DIR, fn))
+        spec = importlib.util.spec_from_file_location(f"quotatrack_provider_{key}", os.path.join(PROVIDERS_DIR, fn))
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
@@ -452,13 +452,13 @@ _instance_lock = None
 
 
 def single_instance():
-    """False if Quota Rail is already running for this user."""
+    """False if QuotaTrack is already running for this user."""
     global _instance_lock
     if IS_WIN:
-        ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\QuotaRailSingleInstance")
+        ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\QuotaTrackSingleInstance")
         return ctypes.windll.kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
     import fcntl
-    _instance_lock = open(os.path.join(tempfile.gettempdir(), f"quota-rail-{os.getuid()}.lock"), "w")
+    _instance_lock = open(os.path.join(tempfile.gettempdir(), f"quotatrack-{os.getuid()}.lock"), "w")
     try:
         fcntl.flock(_instance_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return True
@@ -479,13 +479,13 @@ def play_sound(event):
         pass
 
 
-AUTOSTART_NAME = "Quota Rail"
+AUTOSTART_NAME = "QuotaTrack"
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_LAUNCH_AGENT = os.path.expanduser("~/Library/LaunchAgents/com.quotarail.plist")
+_LAUNCH_AGENT = os.path.expanduser("~/Library/LaunchAgents/com.quotatrack.plist")
 
 
 def _launch_command():
-    """How to start this copy of Quota Rail with no console window."""
+    """How to start this copy of QuotaTrack with no console window."""
     python = sys.executable
     if IS_WIN:
         windowless = os.path.join(os.path.dirname(python), "pythonw.exe")
@@ -495,7 +495,7 @@ def _launch_command():
 
 
 def autostart_enabled():
-    """Whether Quota Rail starts when you sign in: your user's Run key on Windows, a LaunchAgent on macOS."""
+    """Whether QuotaTrack starts when you sign in: your user's Run key on Windows, a LaunchAgent on macOS."""
     if IS_WIN:
         import winreg
         try:
@@ -529,7 +529,7 @@ def set_autostart(on):
                     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                     '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
                     '<plist version="1.0"><dict>\n'
-                    '  <key>Label</key><string>com.quotarail</string>\n'
+                    '  <key>Label</key><string>com.quotatrack</string>\n'
                     f'  <key>ProgramArguments</key><array><string>{python}</string><string>{script}</string></array>\n'
                     '  <key>RunAtLoad</key><true/>\n'
                     '</dict></plist>\n')
@@ -1144,7 +1144,7 @@ class App:
         def action(label, run, right=None, danger=False):
             return {"kind": "action", "label": label, "run": run, "right": right, "danger": danger}
 
-        rows = [{"kind": "title", "label": "Quota Rail"},
+        rows = [{"kind": "title", "label": "QuotaTrack"},
                 action("Refresh now", self.wake.set),
                 {"kind": "header", "label": "Display"},
                 toggle("Auto-hide", lambda: cfg["autohide"], self.set_autohide, "Tuck it away until the pointer comes"),
@@ -1168,7 +1168,7 @@ class App:
         rows += [action(p.name, lambda p=p: self.open_dialog(p), "Edit") for p in self.providers if p.custom]
         rows += [{"kind": "separator"},
                  action("Open providers folder", lambda: open_folder(PROVIDERS_DIR)),
-                 action("Quit Quota Rail", self.root.destroy, danger=True)]
+                 action("Quit QuotaTrack", self.root.destroy, danger=True)]
         return rows
 
     # --- AIs added from the menu ---
@@ -1670,7 +1670,7 @@ def main():
         return
     win32_dpi_aware()
     root = tk.Tk()
-    root.title("Quota Rail")
+    root.title("QuotaTrack")
     providers = demo_providers() if "--demo" in sys.argv else load_providers()
     App(root, providers)
     root.mainloop()
