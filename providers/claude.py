@@ -4,7 +4,7 @@ File: plan-usage-history.json in the Claude desktop app's data folder
   Windows  %APPDATA%\\Claude\\
   macOS    ~/Library/Application Support/Claude/
 ({"fh": five-hour %, "sd": seven-day %} per sample.) No token, no network.
-The file has no reset times, so they are estimated from when the figures last fell.
+The file has no reset times, so they are worked out from when the figures last fell (limits reset on the hour).
 
 Activity: every running Claude Code session (desktop app or terminal) keeps ~/.claude/sessions/<pid>.json
 up to date with "status": busy / waiting (plus what it is waiting for) / idle. Only the .json files are read;
@@ -56,13 +56,23 @@ def _samples():
     return [s for s in samples if s.get("org") == org]
 
 
+def _on_the_hour(before, after):
+    """Claude's limits reset on the hour: the top of an hour between two samples, nearest their middle."""
+    middle = (before + after) / 2
+    nearest = round(middle / HOUR) * HOUR
+    for hour in (nearest, nearest - HOUR, nearest + HOUR):
+        if before < hour <= after:
+            return hour
+    return middle
+
+
 def _weekly_reset(samples, now):
     """The weekly figure only falls at a reset, so the latest fall plus a week is the next one."""
     for i in range(len(samples) - 1, 0, -1):
         prev, cur = samples[i - 1]["u"].get("sd"), samples[i]["u"].get("sd")
         if prev is not None and cur is not None and cur < prev:
-            gap = samples[i]["t"] - samples[i - 1]["t"]
-            reset = samples[i]["t"] - (gap / 2 if gap <= HOUR else 0) + WEEK
+            before, after = samples[i - 1]["t"], samples[i]["t"]
+            reset = (_on_the_hour(before, after) if after - before <= HOUR else after) + WEEK
             while reset < now:
                 reset += WEEK
             return reset
@@ -70,7 +80,7 @@ def _weekly_reset(samples, now):
 
 
 def _session_reset(samples):
-    """The 5-hour window starts with the first use after the last one ended: find where this run began."""
+    """The 5-hour window starts at the top of the hour of the first use after the last one ended."""
     if not samples or not samples[-1]["u"].get("fh"):
         return None
     i = len(samples) - 1
@@ -85,7 +95,7 @@ def _session_reset(samples):
         gap = samples[i]["t"] - samples[i - 1]["t"]
         if gap <= HOUR:
             start -= gap / 2
-    return start + FIVE_H
+    return start // HOUR * HOUR + FIVE_H
 
 
 def read():

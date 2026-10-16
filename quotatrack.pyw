@@ -274,7 +274,7 @@ def fmt_reset(reset, rolled, estimated, now):
         return f"Resets in {approx}{fmt_span(reset - now)}"
     d = dt.datetime.fromtimestamp(reset / 1000)
     if reset - now >= 6 * 24 * 3600 * 1000:  # a weekday alone could mean this week or next
-        return f"Resets {approx}{d:%a}, {d:%b} {d.day}"
+        return f"Resets {approx}{d:%a} {d:%b} {d.day}, {d.hour % 12 or 12}:{d:%M} {d:%p}"
     return f"Resets {approx}{d:%a} {d.hour % 12 or 12}:{d:%M} {d:%p}"
 
 
