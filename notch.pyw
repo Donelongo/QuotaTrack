@@ -535,19 +535,106 @@ def render_alpha(w, h, coverage):
     return out
 
 
-def black_png(w, h, alpha, rgb=(0, 0, 0)):
-    """A single-colour RGBA PNG with the given alpha, encoded without any image library."""
-    pixel = bytes(rgb)
+def rgba_png(w, h, rgba):
+    """An RGBA PNG from w*h*4 bytes, encoded without any image library."""
     raw = bytearray()
     for yy in range(h):
         raw.append(0)  # no filter
-        for a in alpha[yy * w:(yy + 1) * w]:
-            raw += pixel + bytes((a,))
+        raw += rgba[yy * w * 4:(yy + 1) * w * 4]
 
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(bytes(raw))) + chunk(b"IEND", b""))
+
+
+def black_png(w, h, alpha, rgb=(0, 0, 0)):
+    """A single-colour RGBA PNG with the given alpha."""
+    rgba = bytearray(bytes(rgb) + b"\0") * (w * h)
+    rgba[3::4] = alpha
+    return rgba_png(w, h, rgba)
+
+
+def read_png(path):
+    """(w, h, RGBA bytes) of an 8-bit RGB or RGBA PNG, decoded without any image library."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG")
+    pos, idat, head = 8, bytearray(), None
+    while pos + 8 <= len(data):
+        n, kind = struct.unpack(">I", data[pos:pos + 4])[0], data[pos + 4:pos + 8]
+        body = data[pos + 8:pos + 8 + n]
+        pos += 12 + n
+        if kind == b"IHDR":
+            head = struct.unpack(">IIBBBBB", body)
+        elif kind == b"IDAT":
+            idat += body
+        elif kind == b"IEND":
+            break
+    if not head:
+        raise ValueError("no PNG header")
+    w, h, depth, colour, _, _, interlace = head
+    if depth != 8 or colour not in (2, 6) or interlace:
+        raise ValueError("only 8-bit, non-interlaced RGB/RGBA PNGs are supported")
+    bpp = 4 if colour == 6 else 3
+    stride = w * bpp
+    raw = zlib.decompress(bytes(idat))
+    prev, out, i = bytearray(stride), bytearray(), 0
+    for _ in range(h):
+        kind, line = raw[i], bytearray(raw[i + 1:i + 1 + stride])
+        i += 1 + stride
+        for x in range(stride):  # undo the PNG row filters
+            a = line[x - bpp] if x >= bpp else 0
+            b = prev[x]
+            if kind == 1:
+                line[x] = (line[x] + a) & 255
+            elif kind == 2:
+                line[x] = (line[x] + b) & 255
+            elif kind == 3:
+                line[x] = (line[x] + ((a + b) >> 1)) & 255
+            elif kind == 4:
+                c = prev[x - bpp] if x >= bpp else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        out += line if bpp == 4 else b"".join(bytes(line[j:j + 3]) + b"\xff" for j in range(0, stride, 3))
+        prev = line
+    return w, h, out
+
+
+def png_icon(path, size, drop_grey=False):
+    """A PNG logo scaled smoothly to fit size x size, keeping its transparency. drop_grey removes a grey or dark
+    background behind a colourful mark (for a logo that only comes as an app tile), keeping just the mark."""
+    w, h, px = read_png(path)
+    if drop_grey:
+        for i in range(0, len(px), 4):
+            r, g, b = px[i], px[i + 1], px[i + 2]
+            px[i + 3] = round(px[i + 3] * _clamp(((max(r, g, b) - min(r, g, b)) / 255 - 0.12) / 0.2))
+    # crop to what's visible, as a square, so every logo fills the ring the same way
+    xs = [i // 4 % w for i in range(3, len(px), 4) if px[i] > 16]
+    ys = [i // 4 // w for i in range(3, len(px), 4) if px[i] > 16]
+    if not xs:
+        raise ValueError("the image is empty")
+    x0, x1, y0, y1 = min(xs), max(xs) + 1, min(ys), max(ys) + 1
+    side = max(x1 - x0, y1 - y0)
+    x0, y0 = (x0 + x1 - side) / 2, (y0 + y1 - side) / 2
+    step = side / size
+    out = bytearray(size * size * 4)
+    for oy in range(size):
+        for ox in range(size):
+            tr = tg = tb = ta = n = 0
+            for sy in range(int(y0 + oy * step), max(int(y0 + oy * step) + 1, int(y0 + (oy + 1) * step))):
+                for sx in range(int(x0 + ox * step), max(int(x0 + ox * step) + 1, int(x0 + (ox + 1) * step))):
+                    n += 1
+                    if 0 <= sx < w and 0 <= sy < h:
+                        j = (sy * w + sx) * 4
+                        a = px[j + 3]
+                        tr, tg, tb, ta = tr + px[j] * a, tg + px[j + 1] * a, tb + px[j + 2] * a, ta + a
+            k = (oy * size + ox) * 4
+            if ta:  # average colour weighted by alpha, so transparent pixels don't darken the edges
+                out[k:k + 4] = bytes((tr // ta, tg // ta, tb // ta, ta // n))
+    return tk.PhotoImage(data=base64.b64encode(rgba_png(size, size, out)))
 
 
 def overlay(size, color, coverage, key):
@@ -1014,16 +1101,15 @@ class App:
         if p.icon in GLYPHS:
             return glyph_image(size, p.icon)
         if isinstance(p.icon, str) and p.icon.lower().endswith(".png"):
-            path = os.path.join(PROVIDERS_DIR, p.icon)
-
-            def make():
-                img = tk.PhotoImage(file=path)
-                step = max(1, math.ceil(max(img.width(), img.height()) / size))
-                return img.subsample(step) if step > 1 else img
-            try:
-                return cached(("png", path, size), make)
-            except tk.TclError:
-                return None
+            path = os.path.join(PROVIDERS_DIR, p.icon)  # an absolute path stays as it is
+            drop_grey = bool(getattr(p.module, "ICON_DROP_GREY", False))
+            key = ("png", path, size, drop_grey)
+            if key not in _cache:
+                try:
+                    _cache[key] = png_icon(path, size, drop_grey)
+                except (OSError, ValueError, zlib.error, tk.TclError):
+                    _cache[key] = None  # unreadable: fall back to the letter, and don't try again every redraw
+            return _cache[key]
         return None
 
     def draw_icon(self, canvas, p, cx, cy, size):

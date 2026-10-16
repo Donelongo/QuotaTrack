@@ -101,7 +101,9 @@ Each built-in AI is one file in [`providers/`](providers). To write one:
    set up.
 3. Restart Notch.
 
-It gets its own ring automatically, showing the first letter of its name, or a PNG icon you put in
+It gets its own ring automatically, showing the first letter of its name, or a PNG icon (`ICON = "file.png"`,
+smoothly scaled; set `ICON_DROP_GREY = True` to cut a colourful logo out of a grey tile). Logos of the
+built-in AIs come from their apps' installed files where possible, so none are copied into this project. Put icons in
 `providers/`. A provider is ordinary Python running on your computer, so only add ones you wrote or have read.
 
 ## How it works

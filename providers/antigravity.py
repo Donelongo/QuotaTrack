@@ -20,7 +20,21 @@ import urllib.request
 
 NAME = "Antigravity"
 ORDER = 40
-ICON = None  # shows "A"
+
+
+def _installed_logo():
+    """Antigravity's own logo, from its installed files (so no copy of it lives in this project).
+    The only PNG it ships is its Start-menu tile, so Notch drops the tile's grey background."""
+    programs = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")
+    for app in ("Antigravity IDE", "Antigravity"):
+        path = os.path.join(programs, app, "resources", "app", "resources", "win32", "code_150x150.png")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+ICON = _installed_logo()  # None (not installed here, or on macOS) shows "A"
+ICON_DROP_GREY = True
 
 STATE_DIRS = [os.path.join(os.path.expanduser("~"), ".gemini", d) for d in ("antigravity", "antigravity-ide")]
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "antigravity.cache.json")
