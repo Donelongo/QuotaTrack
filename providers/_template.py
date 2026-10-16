@@ -37,7 +37,13 @@ def read():
 # It runs every 2 seconds, so keep it quick (read a small file, don't call a slow API).
 def activity():
     return [
-        # state: "working" spins an arc in the ring, "waiting" pulses it amber, "idle" just lists it
+        # state: "working" spins an arc in the ring, "waiting" (needs approval or input) pulses it amber,
+        #        "idle" (finished, waiting for your reply) shows it blue
         # {"name": "my-project", "state": "working", "detail": None},
         # {"name": "other-project", "state": "waiting", "detail": "needs your approval"},
     ]
+
+
+# Optional: return False to hide the ring until your AI is set up on this PC (checked every 30 seconds).
+def available():
+    return True

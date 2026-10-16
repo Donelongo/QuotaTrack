@@ -23,6 +23,11 @@ network, no login tokens, and no changes to another app's settings.
 | --- | --- | --- |
 | Claude | Claude desktop's `plan-usage-history.json` (reset times are estimated, shown with `~`) | Claude Code's session files in `~/.claude/sessions/*.json` |
 | Codex (ChatGPT plan) | The rate limits Codex logs in `~/.codex/sessions`, as of your last Codex message. Optional live mode, below | `task_started` / `task_complete` events in the same logs |
+| Antigravity | Antigravity's own language server on `127.0.0.1`, while Antigravity is open (nothing leaves your PC; the last reading is kept while it's closed) | — |
+| Kimi Code | Live only (Kimi keeps no usage locally): opt-in, below | — |
+
+A ring only appears once its AI is set up on your PC, so Kimi shows up once you've signed in to Kimi Code, and
+Antigravity once you've used it.
 
 No third-party packages: it's plain Python and Tkinter.
 
@@ -36,6 +41,13 @@ late. For the exact figures the Codex app's **Usage remaining** menu shows, righ
 - sends them only to `https://chatgpt.com/backend-api/wham/usage`, refusing redirects so the token can't be
   forwarded anywhere else
 - asks at most every 5 minutes, backs off if rate-limited, and falls back to the logs if a request fails
+
+### Kimi live mode (opt-in)
+
+Turn on **Kimi: Live usage from api.kimi.com**. Notch reads `access_token` from the Kimi Code CLI's
+`~/.kimi-code/credentials/kimi-code.json` (never refreshing or writing it) and sends it only to
+`https://api.kimi.com/coding/v1/usages`, with redirects refused, at most every 5 minutes. Kimi's tokens last
+15 minutes and the CLI renews them, so if Kimi Code hasn't run lately the card asks you to run `kimi` once.
 
 ## Run it
 
@@ -55,7 +67,7 @@ Add `--demo` to see it with sample figures. Only one copy runs at a time.
 
 ## Using it
 
-- **Click a ring** to refresh it now.
+- **Click a ring** to refresh it now. For an AI whose numbers you type in, clicking opens them to update.
 - **Drag** the column up or down the edge. Its position is remembered.
 - **Right-click** for: Refresh now, Auto-hide, Dock on left edge, sounds on/off, provider switches such as
   Codex live mode, Open providers folder, Quit.
@@ -64,11 +76,29 @@ Settings are saved in `config.json` next to `notch.pyw`.
 
 ## Adding another AI
 
-Each AI is one file in [`providers/`](providers). To add one:
+### Without code
+
+Right-click Notch and choose **Add an AI…**. Give it a name and pick where its numbers come from:
+
+- **I'll type them in myself:** enter how much you've used and when it resets (like `3h`, `2d 4h`, `18:30`
+  or `2026-10-22 14:00`). Click its ring whenever you want to update them.
+- **A web address that returns JSON:** for services with a usage API. Add a header if it needs a key
+  (`Authorization: Bearer YOUR-KEY`), then name the fields holding the numbers as paths into the JSON, such as
+  `data.usage.percent` or `limits[0].used`, optionally with the field it's "out of" and its reset time.
+  Notch fetches it every 5 minutes and never follows redirects, so your key stays with that address.
+- **A JSON file on this PC:** the same field paths, for a file another tool keeps up to date.
+
+Press **Test** to check before saving. Change or remove an AI later from **Edit an AI** in the same menu. These
+are saved in `custom_ais.json` next to `notch.pyw`, which is kept out of git because it can hold an API key.
+
+### With code
+
+Each built-in AI is one file in [`providers/`](providers). To write one:
 
 1. Copy `providers/_template.py` to `providers/<name>.py`.
-2. Fill in `read()` to return the limit percentages. Optionally add `activity()` for working/waiting, and
-   `SETTINGS` for on/off switches in the right-click menu.
+2. Fill in `read()` to return the limit percentages. Optionally add `activity()` for working/waiting,
+   `SETTINGS` for on/off switches in the right-click menu, and `available()` to hide the ring until the AI is
+   set up.
 3. Restart Notch.
 
 It gets its own ring automatically, showing the first letter of its name, or a PNG icon you put in
@@ -77,6 +107,7 @@ It gets its own ring automatically, showing the first letter of its name, or a P
 ## How it works
 
 - `notch.pyw` is the app: the column, rings, hover cards, animations and alerts.
+- `custom_ais.py` is the **Add an AI…** form and the provider that runs the AIs it saves.
 - The straight middle of the column and of the card are ordinary windows. The curved ends are separate
   windows with per-pixel transparency (`UpdateLayeredWindow` on Windows, a transparent Tk window on macOS),
   so the curves blend smoothly into whatever is behind them.

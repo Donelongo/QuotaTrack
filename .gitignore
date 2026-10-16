@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# AIs added from the menu (may hold API keys) and cached readings
+custom_ais.json
+*.cache.json

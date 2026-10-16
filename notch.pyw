@@ -39,6 +39,10 @@ IS_MAC = sys.platform == "darwin"
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROVIDERS_DIR = os.path.join(HERE, "providers")
 CONFIG_PATH = os.path.join(HERE, "config.json")
+CUSTOM_PATH = os.path.join(HERE, "custom_ais.json")  # AIs added from the menu; can hold API keys, so not in git
+
+sys.path.insert(0, HERE)
+import custom_ais  # noqa: E402  (needs HERE on the path first)
 
 POLL_SECS = 30
 ACTIVITY_SECS = 2
@@ -146,6 +150,18 @@ class Provider:
         self.error = load_error
         self.sessions = []
         self.seen_activity = False  # the first reading has no "before", so it never alerts
+        self.custom = isinstance(module, custom_ais.CustomAI)
+        self.visible = self.check_available()
+
+    def check_available(self):
+        """A provider can hide its ring until its AI is set up on this PC, by defining available()."""
+        check = getattr(self.module, "available", None)
+        if not callable(check):
+            return True
+        try:
+            return bool(check())
+        except Exception:
+            return True
 
     def state(self):
         """What the ring shows. A session blocked on you beats one working, which beats one that has finished
@@ -181,6 +197,8 @@ def load_providers():
             providers.append(Provider(key, module))
         except Exception as e:  # a broken provider shows its error instead of stopping the app
             providers.append(Provider(key, module, f"Couldn't load {fn}: {e}"))
+    for i, entry in enumerate(custom_ais.load_entries(CUSTOM_PATH)):
+        providers.append(Provider(f"custom-{entry['id']}", custom_ais.CustomAI(entry, 60 + i)))
     providers.sort(key=lambda p: (p.order, p.key))
     return providers
 
@@ -742,28 +760,9 @@ class App:
         self.autohide_var = tk.BooleanVar(value=self.cfg["autohide"])
         self.left_var = tk.BooleanVar(value=self.cfg["edge"] == "left")
         self.sounds_var = tk.BooleanVar(value=self.cfg["sounds"])
-        self.menu = tk.Menu(root, tearoff=False)
-        self.menu.add_command(label="Refresh now", command=self.wake.set)
-        self.menu.add_checkbutton(label="Auto-hide", variable=self.autohide_var, command=self.toggle_autohide)
-        self.menu.add_checkbutton(label="Dock on left edge", variable=self.left_var, command=self.toggle_edge)
-        self.menu.add_checkbutton(label="Sound when an AI finishes or needs you", variable=self.sounds_var,
-                                  command=self.toggle_sounds)
-        self.setting_vars = []
-        for p in providers:
-            options = getattr(p.module, "SETTINGS", None)
-            if not isinstance(options, dict):
-                continue
-            chosen = self.cfg["provider_settings"].setdefault(p.key, {})
-            for name, (label, default) in options.items():
-                chosen.setdefault(name, bool(default))
-                var = tk.BooleanVar(value=chosen[name])
-                self.setting_vars.append(var)
-                self.menu.add_checkbutton(label=f"{p.name}: {label}", variable=var,
-                                          command=lambda p=p, name=name, var=var: self.set_provider_setting(p, name, var))
-            p.module.settings = dict(chosen)
-        self.menu.add_command(label="Open providers folder", command=lambda: open_folder(PROVIDERS_DIR))
-        self.menu.add_separator()
-        self.menu.add_command(label="Quit", command=root.destroy)
+        self.menu = None
+        self.dialog = None
+        self.build_menu()
 
         self.draw_column()
         root.update_idletasks()
@@ -777,6 +776,80 @@ class App:
 
     def px(self, v):
         return round(v * self.s)
+
+    def shown(self):
+        """The providers with a ring: the ones whose AI is set up on this PC."""
+        return [p for p in self.providers if p.visible]
+
+    def build_menu(self):
+        """The right-click menu. Rebuilt when AIs are added or removed."""
+        if self.menu:
+            self.menu.destroy()
+        menu = self.menu = tk.Menu(self.root, tearoff=False)
+        menu.add_command(label="Refresh now", command=self.wake.set)
+        menu.add_checkbutton(label="Auto-hide", variable=self.autohide_var, command=self.toggle_autohide)
+        menu.add_checkbutton(label="Dock on left edge", variable=self.left_var, command=self.toggle_edge)
+        menu.add_checkbutton(label="Sound when an AI finishes or needs you", variable=self.sounds_var,
+                             command=self.toggle_sounds)
+        menu.add_separator()
+        self.setting_vars = []
+        for p in self.providers:
+            options = getattr(p.module, "SETTINGS", None)
+            if not isinstance(options, dict):
+                continue
+            chosen = self.cfg["provider_settings"].setdefault(p.key, {})
+            for name, (label, default) in options.items():
+                chosen.setdefault(name, bool(default))
+                var = tk.BooleanVar(value=chosen[name])
+                self.setting_vars.append(var)
+                menu.add_checkbutton(label=f"{p.name}: {label}", variable=var,
+                                     command=lambda p=p, name=name, var=var: self.set_provider_setting(p, name, var))
+            p.module.settings = dict(chosen)
+        menu.add_separator()
+        menu.add_command(label="Add an AI…", command=lambda: self.open_dialog(None))
+        custom = [p for p in self.providers if p.custom]
+        if custom:
+            edit = tk.Menu(menu, tearoff=False)
+            for p in custom:
+                edit.add_command(label=f"{p.name}…", command=lambda p=p: self.open_dialog(p))
+            menu.add_cascade(label="Edit an AI", menu=edit)
+        menu.add_command(label="Open providers folder", command=lambda: open_folder(PROVIDERS_DIR))
+        menu.add_separator()
+        menu.add_command(label="Quit", command=self.root.destroy)
+
+    # --- AIs added from the menu ---
+
+    def open_dialog(self, p):
+        if self.dialog and self.dialog.win.winfo_exists():
+            self.dialog.win.destroy()
+        self.hide_card()
+        entry = p.module.entry if p else None
+        self.dialog = custom_ais.AIDialog(self.root, entry, self.save_custom, self.remove_custom if p else None)
+
+    def save_custom(self, entry):
+        entries = custom_ais.load_entries(CUSTOM_PATH)
+        for i, e in enumerate(entries):
+            if e["id"] == entry["id"]:
+                entries[i] = entry
+                break
+        else:
+            entries.append(entry)
+        custom_ais.save_entries(CUSTOM_PATH, entries)
+        self.reload_custom(entries)
+
+    def remove_custom(self, entry):
+        entries = [e for e in custom_ais.load_entries(CUSTOM_PATH) if e["id"] != entry["id"]]
+        custom_ais.save_entries(CUSTOM_PATH, entries)
+        self.reload_custom(entries)
+
+    def reload_custom(self, entries):
+        keep = [p for p in self.providers if not p.custom]
+        added = [Provider(f"custom-{e['id']}", custom_ais.CustomAI(e, 60 + i)) for i, e in enumerate(entries)]
+        self.providers = sorted(keep + added, key=lambda p: (p.order, p.key))
+        self.by_key = {p.key: p for p in self.providers}
+        self.build_menu()
+        self.draw_column()
+        self.wake.set()  # read the new ones now
 
     def font(self, size, bold=False):
         """A UI font sized in pixels (negative size), so it matches the layout on either system."""
@@ -807,8 +880,16 @@ class App:
         while True:
             usage_due = self.wake.is_set() or time.time() - last_usage >= POLL_SECS
             self.wake.clear()
-            for p in self.providers:
+            for p in list(self.providers):  # a copy: AIs can be added or removed meanwhile
                 if p.module is None:
+                    continue
+                if usage_due:
+                    available = p.check_available()
+                    if available != p.visible:
+                        self.results.put(("available", p.key, available, None))
+                    if not available:
+                        continue
+                elif not p.visible:
                     continue
                 if usage_due and hasattr(p.module, "read"):
                     try:
@@ -832,7 +913,15 @@ class App:
                 kind, key, data, err = self.results.get_nowait()
             except queue.Empty:
                 return changed
-            p = self.by_key[key]
+            p = self.by_key.get(key)
+            if p is None:  # removed since it was read
+                continue
+            if kind == "available":
+                p.visible = data
+                if not data and self.card_key == key:
+                    self.hide_card()
+                changed = True
+                continue
             if kind == "activity":
                 if data != p.sessions:
                     self.activity_changed(p, data, now)
@@ -875,7 +964,7 @@ class App:
 
     def column_rect(self):
         """The column's body on screen (x, y, w, h), not counting the flares above and below it."""
-        h = self.pad_top + max(1, len(self.providers)) * self.row_h + self.pad_bottom
+        h = self.pad_top + max(1, len(self.shown())) * self.row_h + self.pad_bottom
         w = self.col_w if self.expanded else self.strip_w
         y = int(min(max(self.cfg["offset"], self.ear + self.px(4)), self.sh - h - self.ear - self.px(4)))
         x = self.sw - w if self.right() else 0
@@ -904,7 +993,8 @@ class App:
         if not (x <= px_ < x + w and y <= py_ < y + h) or not self.expanded:
             return None
         i = int((py_ - y - self.pad_top + self.px(7)) // self.row_h)
-        return self.providers[i] if 0 <= i < len(self.providers) else None
+        shown = self.shown()
+        return shown[i] if 0 <= i < len(shown) else None
 
     # --- drawing ---
 
@@ -943,7 +1033,7 @@ class App:
         now = now_ms()
         cx = self.col_w / 2
         self.anim_items = {}
-        for i, p in enumerate(self.providers):
+        for i, p in enumerate(self.shown()):
             top = self.pad_top + i * self.row_h
             cy = top + self.ring / 2
             pct = p.headline(now)
@@ -1066,7 +1156,8 @@ class App:
         h = max(y, 2 * r + px(10))
         c.config(width=w, height=h)
         x0, y0, cw, _ = self.column_rect()
-        i = self.providers.index(p)
+        shown = self.shown()
+        i = shown.index(p) if p in shown else 0
         horn = self.horn
         top = y0 + self.pad_top + i * self.row_h + px(4)  # the tail's tip sits level with the ring's top
         top = int(min(max(top, horn + px(8)), self.sh - h - px(8)))
@@ -1149,7 +1240,11 @@ class App:
             self.cfg["offset"] = self.column_rect()[1]
             save_config(self.cfg)
         else:
-            self.wake.set()  # a click refreshes
+            p = self.row_at(e.x_root, e.y_root)
+            if p and p.custom and p.module.MANUAL:
+                self.open_dialog(p)  # its numbers are yours to type, so a click opens them
+            else:
+                self.wake.set()  # a click refreshes
 
     def show_menu(self, e):
         self.menu.tk_popup(e.x_root, e.y_root)
