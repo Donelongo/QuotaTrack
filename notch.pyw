@@ -147,9 +147,13 @@ class Provider:
         self.seen_activity = False  # the first reading has no "before", so it never alerts
 
     def state(self):
-        """What the ring shows: waiting beats working, since it's the one that needs you."""
+        """What the ring shows. A session blocked on you beats one working, which beats one that has finished
+        and is waiting for your reply ("reply")."""
         states = {s["state"] for s in self.sessions}
-        return "waiting" if "waiting" in states else "working" if "working" in states else None
+        for state, shown in (("waiting", "waiting"), ("working", "working"), ("idle", "reply")):
+            if state in states:
+                return shown
+        return None
 
     def headline(self, now):
         if not self.data:
@@ -944,10 +948,13 @@ class App:
             if state:  # see-through, so it goes over the icon without hiding it
                 self.anim_items[p.key] = (c.create_image(cx, cy, image=self.anim_frame(state)), state)
             c.create_text(cx, top + self.ring + self.px(12), text=fmt_pct(pct),
-                          fill=AMBER if state == "waiting" else TEXT if pct is not None else DIM, font=self.f_pct)
+                          fill=AMBER if state in ("waiting", "reply") else TEXT if pct is not None else DIM,
+                          font=self.f_pct)
 
     def anim_frame(self, state):
         t = time.time()
+        if state == "reply":  # your turn: a steady amber ring, calmer than the pulse that means "needs you now"
+            return pulse_frame(self.ring, PULSE_FRAMES // 4)
         if state == "working":
             return spinner_frame(self.ring, self.ring_inner, int(t / SPIN_SECS * SPIN_FRAMES) % SPIN_FRAMES)
         return pulse_frame(self.ring, int(t / PULSE_SECS * PULSE_FRAMES) % PULSE_FRAMES)
@@ -966,16 +973,16 @@ class App:
         y += px(20)
         for s in sessions[:limit]:
             if s["state"] == "waiting":
-                color, status = AMBER, "Waiting on you" + (f" · {s['detail']}" if s.get("detail") else "")
+                color, status = AMBER, "Needs you" + (f" · {s['detail']}" if s.get("detail") else "")
             elif s["state"] == "working":
                 color, status = TEXT, "Working…"
             else:
-                color, status = DIM, "Done"
+                color, status = AMBER, "Waiting for your reply"
             c.create_image(x + px(4), y + px(8), image=dot_image(px(7), color))
             c.create_text(x + width, y + px(8), text=status, fill=color, font=self.f_small, anchor="e")
             room = width - px(20) - self.f_small.measure(status)
             c.create_text(x + px(16), y + px(8), text=self.fit(s["name"], self.f_label, room),
-                          fill=TEXT if s["state"] != "idle" else DIM, font=self.f_label, anchor="w")
+                          fill=TEXT, font=self.f_label, anchor="w")
             y += px(22)
         if len(sessions) > limit:
             c.create_text(x + px(16), y, text=f"+{len(sessions) - limit} more", fill=DIM, font=self.f_small, anchor="nw")

@@ -8,7 +8,8 @@ used, and whether it's working, done, or waiting on you.
 - **One ring per AI.** Green below 50%, yellow from 50%, red from 70%.
 - **Hover a ring** for each limit window, how much is used, and when it resets.
 - **Working:** a white arc spins inside the ring while a session is busy.
-- **Waiting on you:** the ring pulses amber when a session needs your approval or input.
+- **Needs you:** the ring pulses amber when a session needs your approval or input.
+- **Waiting for your reply:** the ring glows steady amber when a session has finished its turn.
 - **Alerts:** the card pops open (with a sound you can turn off) when a session finishes or stops to ask you
   something, and when a limit crosses 80% or 100%.
 

@@ -29,6 +29,15 @@ else:
     _DATA = os.path.expanduser("~/.config/Claude")
 HISTORY = os.path.join(_DATA, "plan-usage-history.json")
 SESSIONS = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "sessions")
+
+# What Claude Code writes in "waitingFor", in plainer words
+WAITING_FOR = {
+    "dialog open": "asking you something",
+    "input needed": "needs your input",
+    "sandbox request": "needs sandbox approval",
+    "worker request": "needs your approval",
+    "goal proposal": "proposed a goal",
+}
 HOUR = 3600 * 1000
 FIVE_H = 5 * HOUR
 WEEK = 7 * 24 * HOUR
@@ -151,7 +160,7 @@ def activity():
         sessions.append({
             "name": s.get("name") or os.path.basename(str(s.get("cwd", "")).rstrip("\\/")) or "Claude Code",
             "state": state,
-            "detail": s.get("waitingFor") if state == "waiting" else None,
+            "detail": WAITING_FOR.get(s.get("waitingFor"), s.get("waitingFor")) if state == "waiting" else None,
             "where": "Claude app" if s.get("entrypoint") == "claude-desktop" else "Terminal",
         })
     return sessions
