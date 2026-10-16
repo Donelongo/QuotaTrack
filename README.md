@@ -1,9 +1,9 @@
-# AI Usage Notch
+# Quota Rail
 
-A small black notch pinned to the edge of your screen that shows how much of each AI's usage limit you've
+A slim black rail pinned to the edge of your screen that shows how much of each AI's usage limit you've
 used, and whether it's working, done, or waiting on you.
 
-![The notch on the right edge with the Claude card open](docs/screenshot.png)
+![Quota Rail on the right edge with the Claude card open](docs/screenshot.png)
 
 - **One ring per AI.** Green below 50%, yellow from 50%, red from 70%.
 - **Hover a ring** for each limit window, how much is used, and when it resets.
@@ -34,8 +34,8 @@ No third-party packages: it's plain Python and Tkinter.
 ### Codex live mode (opt-in)
 
 Codex's logs only update when you send Codex a message, so usage from elsewhere (ChatGPT, cloud tasks) shows up
-late. For the exact figures the Codex app's **Usage remaining** menu shows, right-click Notch and turn on
-**Codex: Live usage from chatgpt.com**. Then Notch:
+late. For the exact figures the Codex app's **Usage remaining** menu shows, right-click Quota Rail and turn on
+**Codex: Live usage from chatgpt.com**. Then Quota Rail:
 
 - reads `access_token` and `account_id` from `~/.codex/auth.json`, and never refreshes or writes that file
 - sends them only to `https://chatgpt.com/backend-api/wham/usage`, refusing redirects so the token can't be
@@ -44,23 +44,23 @@ late. For the exact figures the Codex app's **Usage remaining** menu shows, righ
 
 ### Kimi live mode (opt-in)
 
-Turn on **Kimi: Live usage from api.kimi.com**. Notch reads `access_token` from the Kimi Code CLI's
+Turn on **Kimi: Live usage from api.kimi.com**. Quota Rail reads `access_token` from the Kimi Code CLI's
 `~/.kimi-code/credentials/kimi-code.json` (never refreshing or writing it) and sends it only to
 `https://api.kimi.com/coding/v1/usages`, with redirects refused, at most every 5 minutes. Kimi's tokens last
 15 minutes and the CLI renews them, so if Kimi Code hasn't run lately the card asks you to run `kimi` once.
 
 ## Run it
 
-**Windows:** install [Python 3](https://www.python.org/downloads/), then double-click `notch.pyw`, or run:
+**Windows:** install [Python 3](https://www.python.org/downloads/), then double-click `quotarail.pyw`, or run:
 
 ```bash
-pythonw notch.pyw
+pythonw quotarail.pyw
 ```
 
 **macOS** (untested so far): use Python from python.org, or Homebrew's Python plus `brew install python-tk`:
 
 ```bash
-python3 notch.pyw
+python3 quotarail.pyw
 ```
 
 Add `--demo` to see it with sample figures. Only one copy runs at a time.
@@ -72,24 +72,24 @@ Add `--demo` to see it with sample figures. Only one copy runs at a time.
 - **Right-click** for: Refresh now, Auto-hide, Dock on left edge, sounds on/off, provider switches such as
   Codex live mode, Open providers folder, Quit.
 
-Settings are saved in `config.json` next to `notch.pyw`.
+Settings are saved in `config.json` next to `quotarail.pyw`.
 
 ## Adding another AI
 
 ### Without code
 
-Right-click Notch and choose **Add an AI…**. Give it a name and pick where its numbers come from:
+Right-click Quota Rail and choose **Add an AI…**. Give it a name and pick where its numbers come from:
 
 - **I'll type them in myself:** enter how much you've used and when it resets (like `3h`, `2d 4h`, `18:30`
   or `2026-10-22 14:00`). Click its ring whenever you want to update them.
 - **A web address that returns JSON:** for services with a usage API. Add a header if it needs a key
   (`Authorization: Bearer YOUR-KEY`), then name the fields holding the numbers as paths into the JSON, such as
   `data.usage.percent` or `limits[0].used`, optionally with the field it's "out of" and its reset time.
-  Notch fetches it every 5 minutes and never follows redirects, so your key stays with that address.
+  Quota Rail fetches it every 5 minutes and never follows redirects, so your key stays with that address.
 - **A JSON file on this PC:** the same field paths, for a file another tool keeps up to date.
 
 Press **Test** to check before saving. Change or remove an AI later from **Edit an AI** in the same menu. These
-are saved in `custom_ais.json` next to `notch.pyw`, which is kept out of git because it can hold an API key.
+are saved in `custom_ais.json` next to `quotarail.pyw`, which is kept out of git because it can hold an API key.
 
 ### With code
 
@@ -99,7 +99,7 @@ Each built-in AI is one file in [`providers/`](providers). To write one:
 2. Fill in `read()` to return the limit percentages. Optionally add `activity()` for working/waiting,
    `SETTINGS` for on/off switches in the right-click menu, and `available()` to hide the ring until the AI is
    set up.
-3. Restart Notch.
+3. Restart Quota Rail.
 
 It gets its own ring automatically, showing the first letter of its name, or a PNG icon (`ICON = "file.png"`,
 smoothly scaled; set `ICON_DROP_GREY = True` to cut a colourful logo out of a grey tile). Logos of the
@@ -108,7 +108,7 @@ built-in AIs come from their apps' installed files where possible, so none are c
 
 ## How it works
 
-- `notch.pyw` is the app: the column, rings, hover cards, animations and alerts.
+- `quotarail.pyw` is the app: the column, rings, hover cards, animations and alerts.
 - `custom_ais.py` is the **Add an AI…** form and the provider that runs the AIs it saves.
 - The straight middle of the column and of the card are ordinary windows. The curved ends are separate
   windows with per-pixel transparency (`UpdateLayeredWindow` on Windows, a transparent Tk window on macOS),

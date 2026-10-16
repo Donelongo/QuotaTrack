@@ -1,11 +1,11 @@
 """Antigravity: your Gemini model quotas, asked of Antigravity itself while it's open.
 
 Nothing leaves your PC. While Antigravity runs, its built-in language server listens on 127.0.0.1 and answers
-RetrieveUserQuotaSummary, the same call its own quota panel makes. Notch finds that process (its command line
+RetrieveUserQuotaSummary, the same call its own quota panel makes. Quota Rail finds that process (its command line
 carries the --csrf_token the server expects), finds its local port, and asks there; the certificate check is
 relaxed for 127.0.0.1 only, because that server signs its own. No Google login is read or used.
 
-Antigravity reports what *remains*; Notch shows what's used. When Antigravity is closed, the last reading is
+Antigravity reports what *remains*; Quota Rail shows what's used. When Antigravity is closed, the last reading is
 kept (in antigravity.cache.json next to this file) and shown with its time.
 """
 
@@ -24,7 +24,7 @@ ORDER = 40
 
 def _installed_logo():
     """Antigravity's own logo, from its installed files (so no copy of it lives in this project).
-    The only PNG it ships is its Start-menu tile, so Notch drops the tile's grey background."""
+    The only PNG it ships is its Start-menu tile, so Quota Rail drops the tile's grey background."""
     programs = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")
     for app in ("Antigravity IDE", "Antigravity"):
         path = os.path.join(programs, app, "resources", "app", "resources", "win32", "code_150x150.png")
@@ -191,7 +191,7 @@ def read():
         else:
             cached = _state["result"] or _load_cache()
             if not cached:
-                raise RuntimeError("Open Antigravity once so Notch can read its quota.")
+                raise RuntimeError("Open Antigravity once so Quota Rail can read its quota.")
             note = "Antigravity is closed, so this is its last reading." if not found else \
                 "Antigravity didn't answer, so this is its last reading."
             _state["result"] = dict(cached, note=note)

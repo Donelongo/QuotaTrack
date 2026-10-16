@@ -1,4 +1,4 @@
-"""Notch: your AI usage limits, pinned to the edge of the screen.
+"""Quota Rail: your AI usage limits, pinned to the edge of the screen.
 
 Every AI is one small file in the providers folder. The built-in ones read only files the AI apps already
 write on this PC (no network, no tokens):
@@ -9,8 +9,8 @@ To add another AI, copy providers/_template.py to providers/<name>.py and fill i
 Hover a ring for its limits and reset times. Click a ring to refresh, drag the column to move it along
 the edge, right-click for options.
 
-Windows:  pythonw notch.pyw          (no console window)
-macOS:    python3 notch.pyw          (needs Python with Tk 8.6+: python.org's installer, or
+Windows:  pythonw quotarail.pyw          (no console window)
+macOS:    python3 quotarail.pyw          (needs Python with Tk 8.6+: python.org's installer, or
                                       Homebrew's python plus `brew install python-tk`)
 Demo:     add --demo to show sample figures
 """
@@ -190,7 +190,7 @@ def load_providers():
         if not fn.endswith(".py") or fn.startswith("_"):
             continue
         key = fn[:-3]
-        spec = importlib.util.spec_from_file_location(f"notch_provider_{key}", os.path.join(PROVIDERS_DIR, fn))
+        spec = importlib.util.spec_from_file_location(f"quotarail_provider_{key}", os.path.join(PROVIDERS_DIR, fn))
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
@@ -437,13 +437,13 @@ _instance_lock = None
 
 
 def single_instance():
-    """False if Notch is already running for this user."""
+    """False if Quota Rail is already running for this user."""
     global _instance_lock
     if IS_WIN:
-        ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\NotchUsageSingleInstance")
+        ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\QuotaRailSingleInstance")
         return ctypes.windll.kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
     import fcntl
-    _instance_lock = open(os.path.join(tempfile.gettempdir(), f"notch-usage-{os.getuid()}.lock"), "w")
+    _instance_lock = open(os.path.join(tempfile.gettempdir(), f"quota-rail-{os.getuid()}.lock"), "w")
     try:
         fcntl.flock(_instance_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return True
@@ -1377,7 +1377,7 @@ def main():
         return
     win32_dpi_aware()
     root = tk.Tk()
-    root.title("Notch")
+    root.title("Quota Rail")
     providers = demo_providers() if "--demo" in sys.argv else load_providers()
     App(root, providers)
     root.mainloop()
