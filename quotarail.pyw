@@ -464,6 +464,64 @@ def play_sound(event):
         pass
 
 
+AUTOSTART_NAME = "Quota Rail"
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_LAUNCH_AGENT = os.path.expanduser("~/Library/LaunchAgents/com.quotarail.plist")
+
+
+def _launch_command():
+    """How to start this copy of Quota Rail with no console window."""
+    python = sys.executable
+    if IS_WIN:
+        windowless = os.path.join(os.path.dirname(python), "pythonw.exe")
+        if os.path.isfile(windowless):
+            python = windowless
+    return python, os.path.abspath(__file__)
+
+
+def autostart_enabled():
+    """Whether Quota Rail starts when you sign in: your user's Run key on Windows, a LaunchAgent on macOS."""
+    if IS_WIN:
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
+                winreg.QueryValueEx(key, AUTOSTART_NAME)
+            return True
+        except OSError:
+            return False
+    return IS_MAC and os.path.isfile(_LAUNCH_AGENT)
+
+
+def set_autostart(on):
+    if IS_WIN:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            if on:
+                python, script = _launch_command()
+                winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, f'"{python}" "{script}"')
+            else:
+                try:
+                    winreg.DeleteValue(key, AUTOSTART_NAME)
+                except FileNotFoundError:
+                    pass
+    elif IS_MAC:
+        if on:
+            python, script = _launch_command()
+            os.makedirs(os.path.dirname(_LAUNCH_AGENT), exist_ok=True)
+            with open(_LAUNCH_AGENT, "w", encoding="utf-8") as f:
+                f.write(
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                    '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                    '<plist version="1.0"><dict>\n'
+                    '  <key>Label</key><string>com.quotarail</string>\n'
+                    f'  <key>ProgramArguments</key><array><string>{python}</string><string>{script}</string></array>\n'
+                    '  <key>RunAtLoad</key><true/>\n'
+                    '</dict></plist>\n')
+        elif os.path.isfile(_LAUNCH_AGENT):
+            os.remove(_LAUNCH_AGENT)
+
+
 def open_folder(path):
     if IS_WIN:
         os.startfile(path)
@@ -880,6 +938,10 @@ class App:
         menu.add_checkbutton(label="Dock on left edge", variable=self.left_var, command=self.toggle_edge)
         menu.add_checkbutton(label="Sound when an AI finishes or needs you", variable=self.sounds_var,
                              command=self.toggle_sounds)
+        if IS_WIN or IS_MAC:
+            self.autostart_var = tk.BooleanVar(value=autostart_enabled())
+            menu.add_checkbutton(label="Start with Windows" if IS_WIN else "Start at login",
+                                 variable=self.autostart_var, command=self.toggle_autostart)
         menu.add_separator()
         self.setting_vars = []
         for p in self.providers:
@@ -1360,6 +1422,13 @@ class App:
         p.module.settings = dict(self.cfg["provider_settings"][p.key])
         save_config(self.cfg)
         self.wake.set()  # read again now with the new setting
+
+    def toggle_autostart(self):
+        try:
+            set_autostart(self.autostart_var.get())
+        except OSError:
+            pass
+        self.autostart_var.set(autostart_enabled())  # show what actually took effect
 
     def toggle_sounds(self):
         self.cfg["sounds"] = self.sounds_var.get()

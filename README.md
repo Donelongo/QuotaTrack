@@ -65,12 +65,16 @@ python3 quotarail.pyw
 
 Add `--demo` to see it with sample figures. Only one copy runs at a time.
 
+**Start it automatically:** right-click it and tick **Start with Windows** (**Start at login** on macOS). On
+Windows this adds it to your user's startup apps, so you can also turn it off in Task Manager's **Startup
+apps** tab. If you move the folder, untick and tick it again so it points to the new place.
+
 ## Using it
 
 - **Click a ring** to refresh it now. For an AI whose numbers you type in, clicking opens them to update.
 - **Drag** the column up or down the edge. Its position is remembered.
-- **Right-click** for: Refresh now, Auto-hide, Dock on left edge, sounds on/off, provider switches such as
-  Codex live mode, Open providers folder, Quit.
+- **Right-click** for: Refresh now, Auto-hide, Dock on left edge, sounds on/off, Start with Windows, provider
+  switches such as Codex live mode, Open providers folder, Quit.
 
 Settings are saved in `config.json` next to `quotarail.pyw`.
 
