@@ -14,15 +14,26 @@ used, and whether it's working, done, or waiting on you.
 
 ## Safe by design
 
-The built-in providers only **read files the AI apps already write on your computer**. Notch sends nothing
-over the network, never touches login tokens, and never edits another app's settings.
+By default the built-in providers only **read files the AI apps already write on your computer**: no
+network, no login tokens, and no changes to another app's settings.
 
 | AI | Usage from | Working / waiting from |
 | --- | --- | --- |
 | Claude | Claude desktop's `plan-usage-history.json` (reset times are estimated, shown with `~`) | Claude Code's session files in `~/.claude/sessions/*.json` |
-| Codex (ChatGPT plan) | The rate limits Codex logs in `~/.codex/sessions` after each message | `task_started` / `task_complete` events in the same logs |
+| Codex (ChatGPT plan) | The rate limits Codex logs in `~/.codex/sessions`, as of your last Codex message. Optional live mode, below | `task_started` / `task_complete` events in the same logs |
 
 No third-party packages: it's plain Python and Tkinter.
+
+### Codex live mode (opt-in)
+
+Codex's logs only update when you send Codex a message, so usage from elsewhere (ChatGPT, cloud tasks) shows up
+late. For the exact figures the Codex app's **Usage remaining** menu shows, right-click Notch and turn on
+**Codex: Live usage from chatgpt.com**. Then Notch:
+
+- reads `access_token` and `account_id` from `~/.codex/auth.json`, and never refreshes or writes that file
+- sends them only to `https://chatgpt.com/backend-api/wham/usage`, refusing redirects so the token can't be
+  forwarded anywhere else
+- asks at most every 5 minutes, backs off if rate-limited, and falls back to the logs if a request fails
 
 ## Run it
 
@@ -44,7 +55,8 @@ Add `--demo` to see it with sample figures. Only one copy runs at a time.
 
 - **Click a ring** to refresh it now.
 - **Drag** the column up or down the edge. Its position is remembered.
-- **Right-click** for: Refresh now, Auto-hide, Dock on left edge, sounds on/off, Open providers folder, Quit.
+- **Right-click** for: Refresh now, Auto-hide, Dock on left edge, sounds on/off, provider switches such as
+  Codex live mode, Open providers folder, Quit.
 
 Settings are saved in `config.json` next to `notch.pyw`.
 
@@ -53,7 +65,8 @@ Settings are saved in `config.json` next to `notch.pyw`.
 Each AI is one file in [`providers/`](providers). To add one:
 
 1. Copy `providers/_template.py` to `providers/<name>.py`.
-2. Fill in `read()` to return the limit percentages, and optionally `activity()` for working/waiting.
+2. Fill in `read()` to return the limit percentages. Optionally add `activity()` for working/waiting, and
+   `SETTINGS` for on/off switches in the right-click menu.
 3. Restart Notch.
 
 It gets its own ring automatically, showing the first letter of its name, or a PNG icon you put in

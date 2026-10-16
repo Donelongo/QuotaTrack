@@ -13,6 +13,11 @@ NAME = "My AI"   # shown in the hover card title
 ORDER = 50       # position in the column; lower is higher up (Claude is 10, Codex 20)
 ICON = None      # None shows the first letter of NAME; or a PNG file in this folder, e.g. "myai.png"
 
+# Optional on/off switches, shown in Notch's right-click menu as "<NAME>: <label>".
+# Notch saves the choices and puts them in `settings` before each call, e.g. settings.get("live").
+SETTINGS = {}    # e.g. {"live": ("Fetch live usage", False)}
+settings = {}
+
 
 def read():
     return {

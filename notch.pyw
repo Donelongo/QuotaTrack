@@ -62,7 +62,7 @@ YELLOW = "#facc15"
 RED = "#ef4444"
 AMBER = "#f59e0b"
 
-DEFAULTS = {"edge": "right", "offset": 160, "autohide": False, "sounds": True}
+DEFAULTS = {"edge": "right", "offset": 160, "autohide": False, "sounds": True, "provider_settings": {}}
 
 
 def now_ms():
@@ -739,6 +739,19 @@ class App:
         self.menu.add_checkbutton(label="Dock on left edge", variable=self.left_var, command=self.toggle_edge)
         self.menu.add_checkbutton(label="Sound when an AI finishes or needs you", variable=self.sounds_var,
                                   command=self.toggle_sounds)
+        self.setting_vars = []
+        for p in providers:
+            options = getattr(p.module, "SETTINGS", None)
+            if not isinstance(options, dict):
+                continue
+            chosen = self.cfg["provider_settings"].setdefault(p.key, {})
+            for name, (label, default) in options.items():
+                chosen.setdefault(name, bool(default))
+                var = tk.BooleanVar(value=chosen[name])
+                self.setting_vars.append(var)
+                self.menu.add_checkbutton(label=f"{p.name}: {label}", variable=var,
+                                          command=lambda p=p, name=name, var=var: self.set_provider_setting(p, name, var))
+            p.module.settings = dict(chosen)
         self.menu.add_command(label="Open providers folder", command=lambda: open_folder(PROVIDERS_DIR))
         self.menu.add_separator()
         self.menu.add_command(label="Quit", command=root.destroy)
@@ -1135,6 +1148,12 @@ class App:
         self.expanded = not self.cfg["autohide"]
         save_config(self.cfg)
         self.draw_column()
+
+    def set_provider_setting(self, p, name, var):
+        self.cfg["provider_settings"].setdefault(p.key, {})[name] = var.get()
+        p.module.settings = dict(self.cfg["provider_settings"][p.key])
+        save_config(self.cfg)
+        self.wake.set()  # read again now with the new setting
 
     def toggle_sounds(self):
         self.cfg["sounds"] = self.sounds_var.get()
