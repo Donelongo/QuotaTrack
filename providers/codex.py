@@ -21,6 +21,8 @@ after an approval or input request. Sessions with nothing logged in the last 20 
 import datetime as dt
 import json
 import os
+import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -241,17 +243,35 @@ def _read_logs():
     return {"windows": windows, "updated": stamp, "note": "As of your last Codex message"}
 
 
-def _session_name(path):
-    """The folder Codex is working in, from the session_meta line that opens every log."""
+def _session_meta(path):
+    """The folder Codex is working in and which Codex it is ("Codex Desktop", the editor extension or the CLI),
+    from the session_meta line that opens every log."""
     try:
         with open(path, "rb") as f:
-            meta = json.loads(f.readline())
-        cwd = (meta.get("payload") or {}).get("cwd")
-        if cwd:
-            return os.path.basename(cwd.rstrip("\\/")) or cwd
+            meta = json.loads(f.readline()).get("payload") or {}
     except (OSError, ValueError):
-        pass
-    return "Codex"
+        return "Codex", None
+    cwd = meta.get("cwd")
+    name = (os.path.basename(cwd.rstrip("\\/")) or cwd) if cwd else "Codex"
+    return name, meta.get("originator")
+
+
+# The Codex app from the Microsoft Store: starting it again brings the open one forward
+WIN_APP = r"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App"
+
+
+def open_app(session):
+    """A click on a Codex session: bring forward the Codex it's running in."""
+    import _focus
+    origin = str(session.get("app") or "").lower()
+    if "desktop" in origin:
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer.exe", WIN_APP])
+            return True
+        return _focus.focus_exe(("Codex",))
+    if "vscode" in origin:
+        return _focus.focus_exe(("Code.exe", "Code"))
+    return _focus.focus_exe(("codex.exe", "codex"))
 
 
 def activity():
@@ -279,6 +299,7 @@ def activity():
                 continue
             break
         if state:
-            sessions.append({"name": _session_name(path), "state": state,
+            name, origin = _session_meta(path)
+            sessions.append({"name": name, "state": state, "app": origin,
                              "detail": "needs your approval" if state == "waiting" else None})
     return sessions

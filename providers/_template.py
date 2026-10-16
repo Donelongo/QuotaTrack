@@ -38,8 +38,10 @@ def read():
 # It runs every 2 seconds, so keep it quick (read a small file, don't call a slow API).
 def activity():
     return [
-        # state: "working" spins an arc in the ring, "waiting" (needs approval or input) pulses it amber,
-        #        "idle" (finished, waiting for your reply) shows it blue
+        # state: "working" spins an arc in the ring, "waiting" (asked you something or needs approval) blinks
+        #        it blue, "idle" (finished its turn) shows "Done" in the card
+        # optional "pid": the session's process, so a click on it brings its window forward (or define
+        #        open_app(session) below)
         # {"name": "my-project", "state": "working", "detail": None},
         # {"name": "other-project", "state": "waiting", "detail": "needs your approval"},
     ]
@@ -48,3 +50,10 @@ def activity():
 # Optional: return False to hide the ring until your AI is set up on this PC (checked every 30 seconds).
 def available():
     return True
+
+
+# Optional: bring your AI's app to the front when one of its sessions is clicked (a session that has a "pid"
+# doesn't need this). The session dict is the one activity() returned.
+# def open_app(session):
+#     import _focus
+#     return _focus.focus_exe(("MyAI.exe",))

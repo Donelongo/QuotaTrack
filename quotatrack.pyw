@@ -51,10 +51,8 @@ ACTIVITY_SECS = 2
 TICK_MS = 80
 ANIM_MS = 50
 SPIN_SECS = 1.2    # one turn of the working spinner
-PULSE_SECS = 1.4   # one breath of the "needs you" ring
 BLINK_SECS = 1.8   # one blink of the "waiting for your reply" ring
 SPIN_FRAMES = 36
-PULSE_FRAMES = 16
 HIDE_DELAY_MS = 250
 MENU_CLOSE_MS = 400   # the menu closes once the pointer has been away this long
 PEEK_MS = 5000
@@ -68,8 +66,7 @@ TRACK = "#2b2b2b"
 GREEN = "#22c55e"
 YELLOW = "#facc15"
 RED = "#ef4444"
-AMBER = "#f59e0b"   # needs you now (pulses, so it can't be mistaken for the usage yellow)
-BLUE = "#60a5fa"    # finished, waiting for your reply: a colour the usage scale never uses
+BLUE = "#60a5fa"    # waiting for your reply (blinks): a colour the usage scale never uses
 
 DEFAULTS = {"edge": "right", "offset": 160, "autohide": False, "sounds": True, "provider_settings": {}}
 
@@ -130,8 +127,9 @@ def normalize_sessions(items):
         if not isinstance(s, dict):
             continue
         state = s.get("state") if s.get("state") in STATES else "idle"
-        sessions.append({"name": str(s.get("name") or "Session"), "state": state,
-                         "detail": s.get("detail"), "where": s.get("where")})
+        sessions.append({"name": str(s.get("name") or "Session"), "state": state, "detail": s.get("detail"),
+                         "where": s.get("where"), "app": s.get("app"),
+                         "pid": s.get("pid") if isinstance(s.get("pid"), int) else None})
     sessions.sort(key=lambda s: (STATES.index(s["state"]), s["name"].lower()))
     return sessions
 
@@ -179,13 +177,10 @@ class Provider:
             return True
 
     def state(self):
-        """What the ring shows. A session blocked on you beats one working, which beats one that has finished
-        and is waiting for your reply ("reply")."""
+        """What the ring shows: "waiting" (blinks) while a session has asked you something, else "working"
+        (spins) while one is busy. A session that has finished its turn is done and shows nothing."""
         states = {s["state"] for s in self.sessions}
-        for state, shown in (("waiting", "waiting"), ("working", "working"), ("idle", "reply")):
-            if state in states:
-                return shown
-        return None
+        return next((state for state in ("waiting", "working") if state in states), None)
 
     def headline(self, now):
         if not self.data:
@@ -766,12 +761,6 @@ def blink_level(t):
     dim = 0.1
     level = 1 - (1 - dim) * ease(0.62, 0.72) + (1 - dim) * ease(0.82, 0.92)
     return round(level * 20) / 20  # 21 steps is smooth enough, and keeps the image cache small
-
-
-def pulse_frame(size, ring_inner, i):
-    """'Needs you': the inner ring breathing in amber."""
-    level = 0.25 + 0.75 * (0.5 - 0.5 * math.cos(i / PULSE_FRAMES * 2 * math.pi))
-    return inner_ring(size, ring_inner, AMBER, level)
 
 
 def dot_image(size, color):
@@ -1413,11 +1402,9 @@ class App:
 
     def anim_frame(self, state):
         t = time.time()
-        if state == "reply":  # your turn: a blue ring that blinks, calmer than the amber pulse of "needs you now"
+        if state == "waiting":  # it asked you something: a blue ring that blinks until you answer
             return inner_ring(self.ring, self.ring_inner, BLUE, blink_level(t))
-        if state == "working":
-            return spinner_frame(self.ring, self.ring_inner, int(t / SPIN_SECS * SPIN_FRAMES) % SPIN_FRAMES)
-        return pulse_frame(self.ring, self.ring_inner, int(t / PULSE_SECS * PULSE_FRAMES) % PULSE_FRAMES)
+        return spinner_frame(self.ring, self.ring_inner, int(t / SPIN_SECS * SPIN_FRAMES) % SPIN_FRAMES)
 
     def animate(self):
         if self.expanded:
@@ -1425,24 +1412,33 @@ class App:
                 self.col.itemconfigure(item, image=self.anim_frame(state))
         self.root.after(ANIM_MS, self.animate)
 
-    def draw_sessions(self, c, sessions, x, y, width, limit=5):
-        """One line per live session: a coloured dot, its name, and what it's doing."""
+    def draw_sessions(self, c, p, x, y, width, limit=5):
+        """One line per live session: a coloured dot, its name, and what it's doing. A click on one opens it."""
+        sessions = p.sessions
         px = self.px
         c.create_line(x, y - px(8), x + width, y - px(8), fill=TRACK)
         c.create_text(x, y, text="Sessions", fill=DIM, font=self.f_small, anchor="nw")
         y += px(20)
         for s in sessions[:limit]:
             if s["state"] == "waiting":
-                color, status = AMBER, "Needs you" + (f" · {s['detail']}" if s.get("detail") else "")
+                detail = s.get("detail") or "waiting for your reply"
+                dot, color, status = BLUE, BLUE, detail[:1].upper() + detail[1:]
             elif s["state"] == "working":
-                color, status = TEXT, "Working…"
+                dot, color, status = TEXT, TEXT, "Working…"
             else:
-                color, status = BLUE, "Waiting for your reply"
-            c.create_image(x + px(4), y + px(8), image=dot_image(px(7), color))
-            c.create_text(x + width, y + px(8), text=status, fill=color, font=self.f_small, anchor="e")
+                dot, color, status = GREEN, DIM, "Done"
+            tag = f"session{id(s)}"
+            # an invisible strip under the row, so the whole line takes the click, not just its letters
+            c.create_rectangle(x - px(4), y - px(2), x + width + px(4), y + px(19), fill=BG, outline="", tags=tag)
+            c.create_image(x + px(4), y + px(8), image=dot_image(px(7), dot), tags=tag)
+            c.create_text(x + width, y + px(8), text=status, fill=color, font=self.f_small, anchor="e", tags=tag)
             room = width - px(20) - self.f_small.measure(status)
             c.create_text(x + px(16), y + px(8), text=self.fit(s["name"], self.f_label, room),
-                          fill=TEXT, font=self.f_label, anchor="w")
+                          fill=TEXT, font=self.f_label, anchor="w", tags=tag)
+            if self.can_open(p, s):
+                c.tag_bind(tag, "<ButtonRelease-1>", lambda e, s=s: self.open_session(p, s))
+                c.tag_bind(tag, "<Enter>", lambda e: c.config(cursor="hand2"))
+                c.tag_bind(tag, "<Leave>", lambda e: c.config(cursor=""))
             y += px(22)
         if len(sessions) > limit:
             c.create_text(x + px(16), y, text=f"+{len(sessions) - limit} more", fill=DIM, font=self.f_small, anchor="nw")
@@ -1505,7 +1501,7 @@ class App:
             y += px(26)
 
         if p.sessions:
-            y = self.draw_sessions(c, p.sessions, pad, y, inner)
+            y = self.draw_sessions(c, p, pad, y, inner)
 
         foot = []
         if p.data:
@@ -1620,10 +1616,33 @@ class App:
             save_config(self.cfg)
         else:
             p = self.row_at(e.x_root, e.y_root)
-            if p and p.custom and p.module.MANUAL:
+            waiting = [s for s in p.sessions if s["state"] == "waiting" and self.can_open(p, s)] if p else []
+            if waiting:
+                self.open_session(p, waiting[0])  # it asked you something: take you to it
+            elif p and p.custom and p.module.MANUAL:
                 self.open_dialog(p)  # its numbers are yours to type, so a click opens them
             else:
                 self.wake.set()  # a click refreshes
+
+    @staticmethod
+    def can_open(p, s):
+        return callable(getattr(p.module, "open_app", None)) or bool(s.get("pid"))
+
+    def open_session(self, p, s):
+        """Bring the app a session runs in to the front: the provider's open_app(session), or else the window
+        of the session's process or the nearest program above it. Off the Tk thread, as it can take a moment."""
+        def run():
+            try:
+                opener = getattr(p.module, "open_app", None)
+                if callable(opener):
+                    opener(dict(s))
+                else:
+                    import _focus
+                    _focus.focus_pid(s["pid"])
+            except Exception:
+                pass  # it closed in the meantime: nothing to bring forward
+        self.hide_card()
+        threading.Thread(target=run, daemon=True).start()
 
     def show_menu(self, e):
         self.hide_card()

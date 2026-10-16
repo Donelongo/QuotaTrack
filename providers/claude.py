@@ -8,7 +8,7 @@ The file has no reset times, so they are worked out from when the figures last f
 
 Activity: every running Claude Code session (desktop app or terminal) keeps ~/.claude/sessions/<pid>.json
 up to date with "status": busy / waiting (plus what it is waiting for) / idle. Only the .json files are read;
-the .key files beside them hold tokens and are never opened.
+the .key files beside them hold tokens and are never opened. "idle" means the session has finished its turn.
 """
 
 import ctypes
@@ -172,5 +172,6 @@ def activity():
             "state": state,
             "detail": WAITING_FOR.get(s.get("waitingFor"), s.get("waitingFor")) if state == "waiting" else None,
             "where": "Claude app" if s.get("entrypoint") == "claude-desktop" else "Terminal",
+            "pid": pid,  # a click brings forward the window above it: the Claude app, or the terminal
         })
     return sessions
