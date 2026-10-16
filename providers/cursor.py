@@ -23,6 +23,7 @@ ORDER = 25
 
 SETTINGS = {"live": ("Live usage from cursor.com (uses your Cursor sign-in)", False)}
 settings = {}
+REQUIRES = "live"  # nothing to show without it, so no ring until the switch is on
 
 if sys.platform == "win32":
     DB = os.path.join(os.environ.get("APPDATA", ""), "Cursor", "User", "globalStorage", "state.vscdb")

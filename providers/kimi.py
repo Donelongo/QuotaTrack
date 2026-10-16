@@ -22,6 +22,7 @@ ICON = None  # shows "K"
 
 SETTINGS = {"live": ("Live usage from api.kimi.com (uses your Kimi Code login)", False)}
 settings = {}
+REQUIRES = "live"  # nothing to show without it, so no ring until the switch is on
 
 HOME = os.environ.get("KIMI_CODE_HOME") or os.path.join(os.path.expanduser("~"), ".kimi-code")
 CREDENTIALS = os.path.join(HOME, "credentials", "kimi-code.json")

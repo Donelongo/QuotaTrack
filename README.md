@@ -47,8 +47,8 @@ late. For the exact figures the Codex app's **Usage remaining** menu shows, righ
 
 ### Other live modes (opt-in)
 
-Kimi Code, Cursor, GitHub Copilot and Grok keep no usage figures on your PC, so their rings need their live
-switch in the menu's **Live usage** section. Each one only reads the sign-in its own app saved, sends it only to
+Kimi Code, Cursor, GitHub Copilot and Grok keep no usage figures on your PC, so they get a ring only once you
+turn on their switch in the menu's **Live usage** section (they're listed there whenever they're installed). Each one only reads the sign-in its own app saved, sends it only to
 that service's own address (redirects refused), and asks at most every 5 minutes; see `providers/_live.py`.
 
 #### Kimi

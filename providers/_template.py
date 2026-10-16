@@ -17,6 +17,7 @@ ICON = None      # None shows the first letter of NAME; or a PNG file in this fo
 # Quota Rail saves the choices and puts them in `settings` before each call, e.g. settings.get("live").
 SETTINGS = {}    # e.g. {"live": ("Fetch live usage", False)}
 settings = {}
+# REQUIRES = "live"   # optional: no ring until that switch is on (for an AI that can only show live usage)
 
 
 def read():

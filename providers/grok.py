@@ -22,6 +22,7 @@ ICON = None  # shows "G"
 
 SETTINGS = {"live": ("Live usage from grok.com (uses your Grok CLI sign-in)", False)}
 settings = {}
+REQUIRES = "live"  # nothing to show without it, so no ring until the switch is on
 
 AUTH = os.path.join(os.path.expanduser("~"), ".grok", "auth.json")
 URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"

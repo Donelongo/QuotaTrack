@@ -22,6 +22,7 @@ ICON = None  # shows "C"
 
 SETTINGS = {"live": ("Live usage from GitHub (uses your GitHub CLI sign-in)", False)}
 settings = {}
+REQUIRES = "live"  # nothing to show without it, so no ring until the switch is on
 
 URL = "https://api.github.com/copilot_internal/user"
 LABELS = {"premium_interactions": "Premium requests", "chat": "Chat", "completions": "Completions"}

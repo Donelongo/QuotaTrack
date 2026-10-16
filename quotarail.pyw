@@ -154,7 +154,18 @@ class Provider:
         self.sessions = []
         self.seen_activity = False  # the first reading has no "before", so it never alerts
         self.custom = isinstance(module, custom_ais.CustomAI)
-        self.visible = self.check_available()
+        self.installed = self.check_available()
+
+    @property
+    def visible(self):
+        """Whether it gets a ring: its AI is on this PC, and any switch it can't show anything without is on."""
+        return self.installed and self.wanted()
+
+    def wanted(self):
+        """A provider with REQUIRES = "<setting>" (Kimi, Cursor, Copilot, Grok: live-only) stays hidden until that
+        switch is turned on in the menu."""
+        required = getattr(self.module, "REQUIRES", None)
+        return not required or bool((getattr(self.module, "settings", None) or {}).get(required))
 
     def check_available(self):
         """A provider can hide its ring until its AI is set up on this PC, by defining available()."""
@@ -1123,7 +1134,9 @@ class App:
             rows.append(toggle("Start with Windows" if IS_WIN else "Start at login", autostart_enabled,
                                self.set_autostart))
         live = []
-        for p in self.shown():
+        for p in self.providers:  # every AI on this PC, ring or not, so a hidden one can be switched on here
+            if not p.installed:
+                continue
             for name, (label, _) in (getattr(p.module, "SETTINGS", None) or {}).items():
                 m = re.search(r"from (\S+) \((.+)\)", label)
                 sub = f"{m.group(1)} · {m.group(2)}" if m else label
@@ -1206,9 +1219,9 @@ class App:
         def read_one(p):
             try:
                 available = p.check_available()
-                if available != p.visible:
+                if available != p.installed:
                     self.results.put(("available", p.key, available, None))
-                if available and hasattr(p.module, "read"):
+                if available and p.wanted() and hasattr(p.module, "read"):
                     try:
                         self.results.put(("usage", p.key, normalize(p.module.read()), None))
                     except Exception as e:
@@ -1249,7 +1262,7 @@ class App:
             if p is None:  # removed since it was read
                 continue
             if kind == "available":
-                p.visible = data
+                p.installed = data
                 if not data and self.card_key == key:
                     self.hide_card()
                 changed = True
@@ -1606,6 +1619,9 @@ class App:
         self.cfg["provider_settings"].setdefault(p.key, {})[name] = on
         p.module.settings = dict(self.cfg["provider_settings"][p.key])
         save_config(self.cfg)
+        if not p.visible and self.card_key == p.key:
+            self.hide_card()
+        self.draw_column()  # its ring appears or goes at once
         self.wake.set()  # read again now with the new setting
 
     def set_autostart(self, on):
