@@ -191,7 +191,7 @@ def windows_from(entry, data):
                 raise RuntimeError(f'Couldn\'t find "{w["reset_field"]}" in the reply. {describe(data)}')
         windows.append({"label": w.get("label") or "Usage", "used": used, "resets_at": reset})
     if not windows:
-        raise RuntimeError("No usage field is set. Right-click Quota Rail, Edit an AI, and add one.")
+        raise RuntimeError("No usage field is set. Right-click the rail and click it under Your AIs to add one.")
     return windows
 
 

@@ -23,6 +23,7 @@ import json
 import math
 import os
 import queue
+import re
 import struct
 import subprocess
 import sys
@@ -42,6 +43,7 @@ CONFIG_PATH = os.path.join(HERE, "config.json")
 CUSTOM_PATH = os.path.join(HERE, "custom_ais.json")  # AIs added from the menu; can hold API keys, so not in git
 
 sys.path.insert(0, HERE)
+sys.path.insert(1, PROVIDERS_DIR)  # so providers can share helpers such as providers/_live.py
 import custom_ais  # noqa: E402  (needs HERE on the path first)
 
 POLL_SECS = 30
@@ -53,6 +55,7 @@ PULSE_SECS = 1.4   # one breath of the waiting ring
 SPIN_FRAMES = 36
 PULSE_FRAMES = 16
 HIDE_DELAY_MS = 250
+MENU_CLOSE_MS = 400   # the menu closes once the pointer has been away this long
 PEEK_MS = 5000
 REDRAW_MS = 30_000
 ALERT_MARKS = (80, 100)
@@ -661,14 +664,16 @@ def read_png(path):
     return w, h, out
 
 
-def png_icon(path, size, drop_grey=False):
-    """A PNG logo scaled smoothly to fit size x size, keeping its transparency. drop_grey removes a grey or dark
-    background behind a colourful mark (for a logo that only comes as an app tile), keeping just the mark."""
+def png_icon(path, size, drop_grey=False, drop_dark=False):
+    """A PNG logo scaled smoothly to fit size x size, keeping its transparency. For a logo that only comes as an
+    app tile: drop_grey keeps just a colourful mark off a grey background, drop_dark keeps a light mark (even a
+    grey one) off a dark background."""
     w, h, px = read_png(path)
-    if drop_grey:
+    if drop_grey or drop_dark:
         for i in range(0, len(px), 4):
             r, g, b = px[i], px[i + 1], px[i + 2]
-            px[i + 3] = round(px[i + 3] * _clamp(((max(r, g, b) - min(r, g, b)) / 255 - 0.12) / 0.2))
+            keep = ((max(r, g, b) - min(r, g, b)) / 255 - 0.12) / 0.2 if drop_grey else (max(r, g, b) / 255 - 0.2) / 0.15
+            px[i + 3] = round(px[i + 3] * _clamp(keep))
     # crop to what's visible, as a square, so every logo fills the ring the same way
     xs = [i // 4 % w for i in range(3, len(px), 4) if px[i] > 16]
     ys = [i // 4 // w for i in range(3, len(px), 4) if px[i] > 16]
@@ -846,6 +851,167 @@ def shape(fn, *key):
     return fn
 
 
+# ---------- the menu ----------
+
+MENU_HOVER = "#1d1d1d"
+MENU_RED = "#f87171"
+
+
+def work_area(root):
+    """The screen minus the taskbar (or menu bar and Dock), as (left, top, right, bottom)."""
+    if IS_WIN:
+        from ctypes import wintypes
+        rect = wintypes.RECT()
+        if ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0):  # SPI_GETWORKAREA
+            return rect.left, rect.top, rect.right, rect.bottom
+    top = 25 if IS_MAC else 0
+    return 0, top, root.winfo_screenwidth(), root.winfo_screenheight() - (70 if IS_MAC else 0)
+
+
+def switch_image(w, h, on):
+    """A small antialiased on/off switch, see-through around its edges so it sits on any row colour."""
+    def make():
+        track = _rgb(GREEN if on else "#3f3f46")
+        r = h / 2
+        kr = r - 2.5
+        kx = w - r if on else r
+        out = bytearray(w * h * 4)
+        for y in range(h):
+            for x in range(w):
+                px, py = x + 0.5, y + 0.5
+                cx = min(max(px, r), w - r)
+                ta = _clamp(0.5 - (math.hypot(px - cx, py - r) - r))
+                ka = _clamp(0.5 - (math.hypot(px - kx, py - r) - kr))
+                a = ka + ta * (1 - ka)
+                if a <= 0:
+                    continue
+                rgb = [round((255 * ka + c * ta * (1 - ka)) / a) for c in track]
+                out[(y * w + x) * 4:(y * w + x) * 4 + 4] = bytes(rgb + [round(a * 255)])
+        return tk.PhotoImage(data=base64.b64encode(rgba_png(w, h, out)))
+    return cached(("switch", w, h, on), make)
+
+
+class RailMenu:
+    """The right-click menu: a dark panel beside the rail that matches the cards, with switches for settings.
+    It closes when the pointer has been away from it (and the rail) for a moment, or when an action runs."""
+
+    def __init__(self, app):
+        self.app = app
+        self.win = tk.Toplevel(app.root)
+        self.win.overrideredirect(True)
+        self.win.attributes("-topmost", True)
+        self.win.configure(bg=BG)
+        self.canvas = tk.Canvas(self.win, bg=BG, highlightthickness=0, bd=0)
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.bind("<Motion>", lambda e: self.set_hover(self.row_at(e.y)))
+        self.canvas.bind("<Leave>", lambda e: self.set_hover(None))
+        self.canvas.bind("<ButtonRelease-1>", self.on_click)
+        self.rows, self.hover, self.visible, self.styled = [], None, False, False
+        self.rect = (0, 0, 0, 0)
+        self.win.withdraw()
+
+    def contains(self, mx, my):
+        x, y, w, h = self.rect
+        return self.visible and x <= mx < x + w and y <= my < y + h
+
+    def open(self, near_y):
+        app, px = self.app, self.app.px
+        self.rows, self.hover = app.menu_rows(), None
+        w, h = px(300), self.layout()
+        cx, cy, cw, ch = app.column_rect()
+        left, top, right, bottom = work_area(app.root)
+        x = cx - px(10) - w if app.right() else cx + cw + px(10)
+        y = int(min(max(near_y - px(24), top + px(8)), bottom - h - px(8)))
+        self.rect = (x, y, w, h)
+        self.win.geometry(f"{w}x{h}+{x}+{y}")
+        self.draw()
+        self.win.deiconify()
+        self.win.lift()
+        if not self.styled:  # rounded corners and no focus-stealing, once the window exists
+            self.win.update_idletasks()
+            win32_style(self.win, rounded=True)
+            self.styled = True
+        self.visible = True
+
+    def close(self):
+        if self.visible:
+            self.win.withdraw()
+            self.visible = False
+
+    def refresh(self):
+        """Redraw in place, e.g. after a switch flips or AIs are added."""
+        if self.visible:
+            self.rows = self.app.menu_rows()
+            x, y, w, _ = self.rect
+            h = self.layout()
+            self.rect = (x, y, w, h)
+            self.win.geometry(f"{w}x{h}+{x}+{y}")
+            self.draw()
+
+    def layout(self):
+        px = self.app.px
+        heights = {"title": 40, "header": 28, "action": 32, "toggle": 34, "separator": 13}
+        y = px(6)
+        for row in self.rows:
+            hgt = heights[row["kind"]] + (14 if row.get("sub") else 0)
+            row["y0"], row["y1"] = y, y + px(hgt)
+            y = row["y1"]
+        return y + px(8)
+
+    def row_at(self, y):
+        for i, row in enumerate(self.rows):
+            if row["kind"] in ("action", "toggle") and row["y0"] <= y < row["y1"]:
+                return i
+        return None
+
+    def set_hover(self, i):
+        if i != self.hover:
+            self.hover = i
+            self.draw()
+
+    def draw(self):
+        app, c, px = self.app, self.canvas, self.app.px
+        c.delete("all")
+        w = self.rect[2]
+        pad = px(14)
+        for i, row in enumerate(self.rows):
+            y0, y1, kind = row["y0"], row["y1"], row["kind"]
+            mid = (y0 + y1) / 2 - (px(7) if row.get("sub") else 0)
+            if kind == "title":
+                c.create_text(pad, mid, text=row["label"], fill=TEXT, font=app.f_title, anchor="w")
+                continue
+            if kind == "header":
+                c.create_text(pad, y1 - px(8), text=row["label"].upper(), fill=DIM, font=app.f_tiny, anchor="sw")
+                continue
+            if kind == "separator":
+                c.create_line(pad, (y0 + y1) / 2, w - pad, (y0 + y1) / 2, fill=TRACK)
+                continue
+            if i == self.hover:
+                c.create_rectangle(px(6), y0 + 1, w - px(6), y1 - 1, fill=MENU_HOVER, outline="")
+            color = MENU_RED if row.get("danger") else TEXT
+            c.create_text(pad, mid, text=row["label"], fill=color, font=app.f_label, anchor="w")
+            if row.get("sub"):
+                c.create_text(pad, mid + px(16), text=app.fit(row["sub"], app.f_small, w - 2 * pad - px(50)),
+                              fill=DIM, font=app.f_small, anchor="w")
+            if kind == "toggle":
+                c.create_image(w - pad, (y0 + y1) / 2, image=switch_image(px(32), px(18), bool(row["get"]())),
+                               anchor="e")
+            elif row.get("right"):
+                c.create_text(w - pad, mid, text=row["right"], fill=DIM, font=app.f_small, anchor="e")
+
+    def on_click(self, e):
+        i = self.row_at(e.y)
+        if i is None:
+            return
+        row = self.rows[i]
+        if row["kind"] == "toggle":
+            row["set"](not row["get"]())
+            self.refresh()
+        else:
+            self.close()
+            row["run"]()
+
+
 # ---------- the app ----------
 
 class App:
@@ -904,12 +1070,11 @@ class App:
         self.bind_menu(self.card_canvas)
         self.card_top, self.card_bottom = Shape(root), Shape(root)
 
-        self.autohide_var = tk.BooleanVar(value=self.cfg["autohide"])
-        self.left_var = tk.BooleanVar(value=self.cfg["edge"] == "left")
-        self.sounds_var = tk.BooleanVar(value=self.cfg["sounds"])
-        self.menu = None
+        self.f_tiny = self.font(10, bold=True)
+        self.menu = RailMenu(self)
+        self.menu_away_since = None
         self.dialog = None
-        self.build_menu()
+        self.apply_provider_settings()
 
         self.draw_column()
         root.update_idletasks()
@@ -928,45 +1093,50 @@ class App:
         """The providers with a ring: the ones whose AI is set up on this PC."""
         return [p for p in self.providers if p.visible]
 
-    def build_menu(self):
-        """The right-click menu. Rebuilt when AIs are added or removed."""
-        if self.menu:
-            self.menu.destroy()
-        menu = self.menu = tk.Menu(self.root, tearoff=False)
-        menu.add_command(label="Refresh now", command=self.wake.set)
-        menu.add_checkbutton(label="Auto-hide", variable=self.autohide_var, command=self.toggle_autohide)
-        menu.add_checkbutton(label="Dock on left edge", variable=self.left_var, command=self.toggle_edge)
-        menu.add_checkbutton(label="Sound when an AI finishes or needs you", variable=self.sounds_var,
-                             command=self.toggle_sounds)
-        if IS_WIN or IS_MAC:
-            self.autostart_var = tk.BooleanVar(value=autostart_enabled())
-            menu.add_checkbutton(label="Start with Windows" if IS_WIN else "Start at login",
-                                 variable=self.autostart_var, command=self.toggle_autostart)
-        menu.add_separator()
-        self.setting_vars = []
+    def apply_provider_settings(self):
+        """Hand each provider its saved switches (defaults for new ones) before it's read."""
         for p in self.providers:
             options = getattr(p.module, "SETTINGS", None)
-            if not isinstance(options, dict):
-                continue
-            chosen = self.cfg["provider_settings"].setdefault(p.key, {})
-            for name, (label, default) in options.items():
-                chosen.setdefault(name, bool(default))
-                var = tk.BooleanVar(value=chosen[name])
-                self.setting_vars.append(var)
-                menu.add_checkbutton(label=f"{p.name}: {label}", variable=var,
-                                     command=lambda p=p, name=name, var=var: self.set_provider_setting(p, name, var))
-            p.module.settings = dict(chosen)
-        menu.add_separator()
-        menu.add_command(label="Add an AI…", command=lambda: self.open_dialog(None))
-        custom = [p for p in self.providers if p.custom]
-        if custom:
-            edit = tk.Menu(menu, tearoff=False)
-            for p in custom:
-                edit.add_command(label=f"{p.name}…", command=lambda p=p: self.open_dialog(p))
-            menu.add_cascade(label="Edit an AI", menu=edit)
-        menu.add_command(label="Open providers folder", command=lambda: open_folder(PROVIDERS_DIR))
-        menu.add_separator()
-        menu.add_command(label="Quit", command=self.root.destroy)
+            if isinstance(options, dict):
+                chosen = self.cfg["provider_settings"].setdefault(p.key, {})
+                for name, (_, default) in options.items():
+                    chosen.setdefault(name, bool(default))
+                p.module.settings = dict(chosen)
+
+    def menu_rows(self):
+        """What the menu shows, built fresh each time it opens so it always matches the current state."""
+        cfg = self.cfg
+
+        def toggle(label, get, set_, sub=None):
+            return {"kind": "toggle", "label": label, "get": get, "set": set_, "sub": sub}
+
+        def action(label, run, right=None, danger=False):
+            return {"kind": "action", "label": label, "run": run, "right": right, "danger": danger}
+
+        rows = [{"kind": "title", "label": "Quota Rail"},
+                action("Refresh now", self.wake.set),
+                {"kind": "header", "label": "Display"},
+                toggle("Auto-hide", lambda: cfg["autohide"], self.set_autohide, "Tuck it away until the pointer comes"),
+                toggle("Dock on left edge", lambda: cfg["edge"] == "left", self.set_left_edge),
+                toggle("Sounds", lambda: cfg["sounds"], self.set_sounds, "When an AI finishes or needs you")]
+        if IS_WIN or IS_MAC:
+            rows.append(toggle("Start with Windows" if IS_WIN else "Start at login", autostart_enabled,
+                               self.set_autostart))
+        live = []
+        for p in self.shown():
+            for name, (label, _) in (getattr(p.module, "SETTINGS", None) or {}).items():
+                m = re.search(r"from (\S+) \((.+)\)", label)
+                sub = f"{m.group(1)} · {m.group(2)}" if m else label
+                live.append(toggle(p.name, lambda p=p, name=name: cfg["provider_settings"][p.key][name],
+                                   lambda v, p=p, name=name: self.set_provider_setting(p, name, v), sub))
+        if live:
+            rows += [{"kind": "header", "label": "Live usage"}] + live
+        rows += [{"kind": "header", "label": "Your AIs"}, action("Add an AI…", lambda: self.open_dialog(None), "+")]
+        rows += [action(p.name, lambda p=p: self.open_dialog(p), "Edit") for p in self.providers if p.custom]
+        rows += [{"kind": "separator"},
+                 action("Open providers folder", lambda: open_folder(PROVIDERS_DIR)),
+                 action("Quit Quota Rail", self.root.destroy, danger=True)]
+        return rows
 
     # --- AIs added from the menu ---
 
@@ -998,7 +1168,8 @@ class App:
         added = [Provider(f"custom-{e['id']}", custom_ais.CustomAI(e, 60 + i)) for i, e in enumerate(entries)]
         self.providers = sorted(keep + added, key=lambda p: (p.order, p.key))
         self.by_key = {p.key: p for p in self.providers}
-        self.build_menu()
+        self.apply_provider_settings()
+        self.menu.refresh()
         self.draw_column()
         self.wake.set()  # read the new ones now
 
@@ -1165,10 +1336,11 @@ class App:
         if isinstance(p.icon, str) and p.icon.lower().endswith(".png"):
             path = os.path.join(PROVIDERS_DIR, p.icon)  # an absolute path stays as it is
             drop_grey = bool(getattr(p.module, "ICON_DROP_GREY", False))
-            key = ("png", path, size, drop_grey)
+            drop_dark = bool(getattr(p.module, "ICON_DROP_DARK", False))
+            key = ("png", path, size, drop_grey, drop_dark)
             if key not in _cache:
                 try:
-                    _cache[key] = png_icon(path, size, drop_grey)
+                    _cache[key] = png_icon(path, size, drop_grey, drop_dark)
                 except (OSError, ValueError, zlib.error, tk.TclError):
                     _cache[key] = None  # unreadable: fall back to the letter, and don't try again every redraw
             return _cache[key]
@@ -1355,6 +1527,17 @@ class App:
             self.expanded = True
             self.draw_column()
 
+        if self.menu.visible:  # while the menu is open, cards stay away and the rail stays out
+            if self.menu.contains(mx, my) or in_col:
+                self.menu_away_since = None
+            elif self.menu_away_since is None:
+                self.menu_away_since = now
+            elif now - self.menu_away_since >= MENU_CLOSE_MS:
+                self.menu.close()
+                self.away_since = now  # let auto-hide tuck the rail away as usual from here
+            self.root.after(TICK_MS, self.tick)
+            return
+
         target = None
         if not self.drag:
             row = self.row_at(mx, my)
@@ -1409,36 +1592,40 @@ class App:
                 self.wake.set()  # a click refreshes
 
     def show_menu(self, e):
-        self.menu.tk_popup(e.x_root, e.y_root)
+        self.hide_card()
+        self.menu.open(e.y_root)
+        self.menu_away_since = None
 
-    def toggle_autohide(self):
-        self.cfg["autohide"] = self.autohide_var.get()
-        self.expanded = not self.cfg["autohide"]
+    def set_autohide(self, on):
+        self.cfg["autohide"] = on
+        self.expanded = True  # stay open while the menu is showing; it tucks away once the pointer leaves
         save_config(self.cfg)
         self.draw_column()
 
-    def set_provider_setting(self, p, name, var):
-        self.cfg["provider_settings"].setdefault(p.key, {})[name] = var.get()
+    def set_provider_setting(self, p, name, on):
+        self.cfg["provider_settings"].setdefault(p.key, {})[name] = on
         p.module.settings = dict(self.cfg["provider_settings"][p.key])
         save_config(self.cfg)
         self.wake.set()  # read again now with the new setting
 
-    def toggle_autostart(self):
+    def set_autostart(self, on):
         try:
-            set_autostart(self.autostart_var.get())
+            set_autostart(on)
         except OSError:
-            pass
-        self.autostart_var.set(autostart_enabled())  # show what actually took effect
+            pass  # the switch redraws from autostart_enabled(), so it shows what actually took effect
 
-    def toggle_sounds(self):
-        self.cfg["sounds"] = self.sounds_var.get()
+    def set_sounds(self, on):
+        self.cfg["sounds"] = on
         save_config(self.cfg)
 
-    def toggle_edge(self):
-        self.cfg["edge"] = "left" if self.left_var.get() else "right"
+    def set_left_edge(self, on):
+        self.cfg["edge"] = "left" if on else "right"
         save_config(self.cfg)
         self.hide_card()
         self.draw_column()
+        if self.menu.visible:  # move the menu to the rail's new side
+            self.menu.close()
+            self.menu.open(self.menu.rect[1] + self.px(24))
 
 
 def main():

@@ -25,9 +25,12 @@ network, no login tokens, and no changes to another app's settings.
 | Codex (ChatGPT plan) | The rate limits Codex logs in `~/.codex/sessions`, as of your last Codex message. Optional live mode, below | `task_started` / `task_complete` events in the same logs |
 | Antigravity | Antigravity's own language server on `127.0.0.1`, while Antigravity is open (nothing leaves your PC; the last reading is kept while it's closed) | — |
 | Kimi Code | Live only (Kimi keeps no usage locally): opt-in, below | — |
+| Cursor | Live only: opt-in, with the editor's own sign-in, from cursor.com | — |
+| GitHub Copilot | Live only: opt-in, with the GitHub CLI's sign-in, from api.github.com | — |
+| Grok CLI (untested) | Live only: opt-in, with Grok CLI's sign-in, from grok.com | — |
 
-A ring only appears once its AI is set up on your PC, so Kimi shows up once you've signed in to Kimi Code, and
-Antigravity once you've used it.
+Quota Rail checks which of these are on the PC it runs on and shows a ring only for those, so on someone
+else's computer it picks up whatever they use. Any other AI can be added from the menu without code (below).
 
 No third-party packages: it's plain Python and Tkinter.
 
@@ -42,7 +45,13 @@ late. For the exact figures the Codex app's **Usage remaining** menu shows, righ
   forwarded anywhere else
 - asks at most every 5 minutes, backs off if rate-limited, and falls back to the logs if a request fails
 
-### Kimi live mode (opt-in)
+### Other live modes (opt-in)
+
+Kimi Code, Cursor, GitHub Copilot and Grok keep no usage figures on your PC, so their rings need their live
+switch in the menu's **Live usage** section. Each one only reads the sign-in its own app saved, sends it only to
+that service's own address (redirects refused), and asks at most every 5 minutes; see `providers/_live.py`.
+
+#### Kimi
 
 Turn on **Kimi: Live usage from api.kimi.com**. Quota Rail reads `access_token` from the Kimi Code CLI's
 `~/.kimi-code/credentials/kimi-code.json` (never refreshing or writing it) and sends it only to
@@ -73,8 +82,9 @@ apps** tab. If you move the folder, untick and tick it again so it points to the
 
 - **Click a ring** to refresh it now. For an AI whose numbers you type in, clicking opens them to update.
 - **Drag** the column up or down the edge. Its position is remembered.
-- **Right-click** for: Refresh now, Auto-hide, Dock on left edge, sounds on/off, Start with Windows, provider
-  switches such as Codex live mode, Open providers folder, Quit.
+- **Right-click** for the menu beside the rail: Refresh now; Auto-hide, Dock on left edge, Sounds and Start
+  with Windows switches; a **Live usage** switch for each AI that needs one; and your added AIs. It closes when
+  the pointer leaves it.
 
 Settings are saved in `config.json` next to `quotarail.pyw`.
 
@@ -82,7 +92,7 @@ Settings are saved in `config.json` next to `quotarail.pyw`.
 
 ### Without code
 
-Right-click Quota Rail and choose **Add an AI…**. Give it a name and pick where its numbers come from:
+Right-click the rail and choose **Add an AI…**. Give it a name and pick where its numbers come from:
 
 - **I'll type them in myself:** enter how much you've used and when it resets (like `3h`, `2d 4h`, `18:30`
   or `2026-10-22 14:00`). Click its ring whenever you want to update them.
@@ -92,7 +102,7 @@ Right-click Quota Rail and choose **Add an AI…**. Give it a name and pick wher
   Quota Rail fetches it every 5 minutes and never follows redirects, so your key stays with that address.
 - **A JSON file on this PC:** the same field paths, for a file another tool keeps up to date.
 
-Press **Test** to check before saving. Change or remove an AI later from **Edit an AI** in the same menu. These
+Press **Test** to check before saving. Change or remove one later by clicking it under **Your AIs** in the same menu. These
 are saved in `custom_ais.json` next to `quotarail.pyw`, which is kept out of git because it can hold an API key.
 
 ### With code
