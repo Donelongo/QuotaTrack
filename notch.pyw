@@ -60,7 +60,8 @@ TRACK = "#2b2b2b"
 GREEN = "#22c55e"
 YELLOW = "#facc15"
 RED = "#ef4444"
-AMBER = "#f59e0b"
+AMBER = "#f59e0b"   # needs you now (pulses, so it can't be mistaken for the usage yellow)
+BLUE = "#60a5fa"    # finished, waiting for your reply: a colour the usage scale never uses
 
 DEFAULTS = {"edge": "right", "offset": 160, "autohide": False, "sounds": True, "provider_settings": {}}
 
@@ -555,17 +556,21 @@ def spinner_frame(size, ring_inner, i):
     return overlay(size, TEXT, cov, ("spin", ring_inner, i))
 
 
-def pulse_frame(size, i):
-    """'Waiting on you': the whole ring breathing in amber."""
+def inner_ring(size, ring_inner, color, level=1.0):
+    """A thin full circle in the spinner's track, inside the usage ring, so the usage colours stay untouched."""
     c = size / 2
-    ro = size / 2 - 0.5
-    ri = ro - max(3.0, size * 0.11)
-    level = 0.35 + 0.65 * (0.5 - 0.5 * math.cos(i / PULSE_FRAMES * 2 * math.pi))
+    ro, ri = ring_inner - 1.0, ring_inner - 3.2
 
     def cov(px, py):
         r = math.hypot(px - c, py - c)
         return _clamp(ro - r + 0.5) * _clamp(r - ri + 0.5) * level
-    return overlay(size, AMBER, cov, ("pulse", i))
+    return overlay(size, color, cov, ("inner", ring_inner, round(level * 100)))
+
+
+def pulse_frame(size, ring_inner, i):
+    """'Needs you': the inner ring breathing in amber."""
+    level = 0.25 + 0.75 * (0.5 - 0.5 * math.cos(i / PULSE_FRAMES * 2 * math.pi))
+    return inner_ring(size, ring_inner, AMBER, level)
 
 
 def dot_image(size, color):
@@ -948,16 +953,15 @@ class App:
             if state:  # see-through, so it goes over the icon without hiding it
                 self.anim_items[p.key] = (c.create_image(cx, cy, image=self.anim_frame(state)), state)
             c.create_text(cx, top + self.ring + self.px(12), text=fmt_pct(pct),
-                          fill=AMBER if state in ("waiting", "reply") else TEXT if pct is not None else DIM,
-                          font=self.f_pct)
+                          fill=TEXT if pct is not None else DIM, font=self.f_pct)
 
     def anim_frame(self, state):
         t = time.time()
         if state == "reply":  # your turn: a steady amber ring, calmer than the pulse that means "needs you now"
-            return pulse_frame(self.ring, PULSE_FRAMES // 4)
+            return inner_ring(self.ring, self.ring_inner, BLUE)
         if state == "working":
             return spinner_frame(self.ring, self.ring_inner, int(t / SPIN_SECS * SPIN_FRAMES) % SPIN_FRAMES)
-        return pulse_frame(self.ring, int(t / PULSE_SECS * PULSE_FRAMES) % PULSE_FRAMES)
+        return pulse_frame(self.ring, self.ring_inner, int(t / PULSE_SECS * PULSE_FRAMES) % PULSE_FRAMES)
 
     def animate(self):
         if self.expanded:
@@ -977,7 +981,7 @@ class App:
             elif s["state"] == "working":
                 color, status = TEXT, "Working…"
             else:
-                color, status = AMBER, "Waiting for your reply"
+                color, status = BLUE, "Waiting for your reply"
             c.create_image(x + px(4), y + px(8), image=dot_image(px(7), color))
             c.create_text(x + width, y + px(8), text=status, fill=color, font=self.f_small, anchor="e")
             room = width - px(20) - self.f_small.measure(status)
