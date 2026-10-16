@@ -9,7 +9,7 @@ used, and whether it's working, done, or waiting on you.
 - **Hover a ring** for each limit window, how much is used, and when it resets.
 - **Working:** a white arc spins just inside the usage ring while a session is busy.
 - **Needs you:** a thin amber ring pulses inside it when a session needs your approval or input.
-- **Waiting for your reply:** a thin blue ring shows when a session has finished its turn.
+- **Waiting for your reply:** a thin blue ring blinks, like a cursor, when a session has finished its turn.
 - The usage ring itself always keeps its own colour, so a state never changes what the percentage looks like.
 - **Alerts:** the card pops open (with a sound you can turn off) when a session finishes or stops to ask you
   something, and when a limit crosses 80% or 100%.
@@ -116,7 +116,8 @@ Each built-in AI is one file in [`providers/`](providers). To write one:
 3. Restart Quota Rail.
 
 It gets its own ring automatically, showing the first letter of its name, or a PNG icon (`ICON = "file.png"`,
-smoothly scaled; set `ICON_DROP_GREY = True` to cut a colourful logo out of a grey tile). Logos of the
+smoothly scaled; `ICON_DROP_GREY` cuts a colourful logo out of a grey tile, `ICON_DROP_DARK` a light one out
+of a dark tile, and `ICON_MONO` redraws a dark-on-light logo as white lines). Logos of the
 built-in AIs come from their apps' installed files where possible, so none are copied into this project. Put icons in
 `providers/`. A provider is ordinary Python running on your computer, so only add ones you wrote or have read.
 

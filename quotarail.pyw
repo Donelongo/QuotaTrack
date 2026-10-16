@@ -51,7 +51,8 @@ ACTIVITY_SECS = 2
 TICK_MS = 80
 ANIM_MS = 50
 SPIN_SECS = 1.2    # one turn of the working spinner
-PULSE_SECS = 1.4   # one breath of the waiting ring
+PULSE_SECS = 1.4   # one breath of the "needs you" ring
+BLINK_SECS = 1.8   # one blink of the "waiting for your reply" ring
 SPIN_FRAMES = 36
 PULSE_FRAMES = 16
 HIDE_DELAY_MS = 250
@@ -675,15 +676,22 @@ def read_png(path):
     return w, h, out
 
 
-def png_icon(path, size, drop_grey=False, drop_dark=False):
+def png_icon(path, size, drop_grey=False, drop_dark=False, mono=False):
     """A PNG logo scaled smoothly to fit size x size, keeping its transparency. For a logo that only comes as an
     app tile: drop_grey keeps just a colourful mark off a grey background, drop_dark keeps a light mark (even a
-    grey one) off a dark background."""
+    grey one) off a dark background. mono redraws a dark-on-light logo as white lines, its light parts see-through,
+    so it reads on the black rail like the other icons."""
     w, h, px = read_png(path)
-    if drop_grey or drop_dark:
+    if drop_grey or drop_dark or mono:
         for i in range(0, len(px), 4):
             r, g, b = px[i], px[i + 1], px[i + 2]
-            keep = ((max(r, g, b) - min(r, g, b)) / 255 - 0.12) / 0.2 if drop_grey else (max(r, g, b) / 255 - 0.2) / 0.15
+            if mono:
+                keep = (0.85 - max(r, g, b) / 255) / 0.5
+                px[i:i + 3] = bytes((255, 255, 255))
+            elif drop_grey:
+                keep = ((max(r, g, b) - min(r, g, b)) / 255 - 0.12) / 0.2
+            else:
+                keep = (max(r, g, b) / 255 - 0.2) / 0.15
             px[i + 3] = round(px[i + 3] * _clamp(keep))
     # crop to what's visible, as a square, so every logo fills the ring the same way
     xs = [i // 4 % w for i in range(3, len(px), 4) if px[i] > 16]
@@ -746,6 +754,18 @@ def inner_ring(size, ring_inner, color, level=1.0):
         r = math.hypot(px - c, py - c)
         return _clamp(ro - r + 0.5) * _clamp(r - ri + 0.5) * level
     return overlay(size, color, cov, ("inner", ring_inner, round(level * 100)))
+
+
+def blink_level(t):
+    """'Waiting for your reply': lit, a soft blink off, lit again, every BLINK_SECS, like a cursor waiting."""
+    phase = (t % BLINK_SECS) / BLINK_SECS
+
+    def ease(a, b):
+        x = _clamp((phase - a) / (b - a))
+        return x * x * (3 - 2 * x)
+    dim = 0.1
+    level = 1 - (1 - dim) * ease(0.62, 0.72) + (1 - dim) * ease(0.82, 0.92)
+    return round(level * 20) / 20  # 21 steps is smooth enough, and keeps the image cache small
 
 
 def pulse_frame(size, ring_inner, i):
@@ -1350,10 +1370,11 @@ class App:
             path = os.path.join(PROVIDERS_DIR, p.icon)  # an absolute path stays as it is
             drop_grey = bool(getattr(p.module, "ICON_DROP_GREY", False))
             drop_dark = bool(getattr(p.module, "ICON_DROP_DARK", False))
-            key = ("png", path, size, drop_grey, drop_dark)
+            mono = bool(getattr(p.module, "ICON_MONO", False))
+            key = ("png", path, size, drop_grey, drop_dark, mono)
             if key not in _cache:
                 try:
-                    _cache[key] = png_icon(path, size, drop_grey, drop_dark)
+                    _cache[key] = png_icon(path, size, drop_grey, drop_dark, mono)
                 except (OSError, ValueError, zlib.error, tk.TclError):
                     _cache[key] = None  # unreadable: fall back to the letter, and don't try again every redraw
             return _cache[key]
@@ -1392,8 +1413,8 @@ class App:
 
     def anim_frame(self, state):
         t = time.time()
-        if state == "reply":  # your turn: a steady amber ring, calmer than the pulse that means "needs you now"
-            return inner_ring(self.ring, self.ring_inner, BLUE)
+        if state == "reply":  # your turn: a blue ring that blinks, calmer than the amber pulse of "needs you now"
+            return inner_ring(self.ring, self.ring_inner, BLUE, blink_level(t))
         if state == "working":
             return spinner_frame(self.ring, self.ring_inner, int(t / SPIN_SECS * SPIN_FRAMES) % SPIN_FRAMES)
         return pulse_frame(self.ring, self.ring_inner, int(t / PULSE_SECS * PULSE_FRAMES) % PULSE_FRAMES)

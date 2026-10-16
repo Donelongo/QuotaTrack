@@ -18,7 +18,25 @@ import _live
 
 NAME = "Copilot"
 ORDER = 27
-ICON = None  # shows "C"
+
+
+def _installed_logo():
+    """Copilot's logo as VS Code ships it (its built-in Copilot extension), newest install first, so no copy of it
+    lives in this project. It's dark lines on white, so ICON_MONO redraws it as white lines for the black rail."""
+    import glob
+    roots = [os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Microsoft VS Code"),
+             os.path.join(os.environ.get("PROGRAMFILES", ""), "Microsoft VS Code"),
+             "/Applications/Visual Studio Code.app/Contents/Resources"]
+    found = []
+    for root in roots:
+        for pattern in ("*/resources/app/extensions/copilot/assets/copilot.png",
+                        "resources/app/extensions/copilot/assets/copilot.png", "app/extensions/copilot/assets/copilot.png"):
+            found += glob.glob(os.path.join(root, pattern))
+    return max(found, key=os.path.getmtime) if found else None
+
+
+ICON = _installed_logo()  # None (VS Code not installed) shows "C"
+ICON_MONO = True
 
 SETTINGS = {"live": ("Live usage from GitHub (uses your GitHub CLI sign-in)", False)}
 settings = {}
