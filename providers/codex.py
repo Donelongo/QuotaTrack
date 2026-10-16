@@ -300,6 +300,6 @@ def activity():
             break
         if state:
             name, origin = _session_meta(path)
-            sessions.append({"name": name, "state": state, "app": origin,
+            sessions.append({"name": name, "state": state, "app": origin, "since": last_seen,
                              "detail": "needs your approval" if state == "waiting" else None})
     return sessions

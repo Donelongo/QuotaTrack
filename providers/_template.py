@@ -40,6 +40,8 @@ def activity():
     return [
         # state: "working" spins an arc in the ring, "waiting" (asked you something or needs approval) blinks
         #        it blue, "idle" (finished its turn) shows "Done" in the card
+        # optional "since": when it got to this state (epoch s/ms), so a finished one drops off the card
+        #        5 minutes after it finished
         # optional "pid": the session's process, so a click on it brings its window forward (or define
         #        open_app(session) below)
         # {"name": "my-project", "state": "working", "detail": None},

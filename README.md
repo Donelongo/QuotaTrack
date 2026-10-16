@@ -10,7 +10,8 @@ used, and whether it's working, done, or waiting on you.
 - **Working:** a white arc spins just inside the usage ring while a session is busy.
 - **Waiting for your reply:** a thin blue ring blinks, like a cursor, when a session has asked you something
   or needs your approval. **Click the ring** (or the session in its card) to jump to that app.
-- **Done:** a session that has finished its turn stops spinning and shows "Done" in the card.
+- **Done:** a session that has finished its turn stops spinning and shows "Done" in the card for 5 minutes,
+  then drops off the list.
 - The usage ring itself always keeps its own colour, so a state never changes what the percentage looks like.
 - **Alerts:** the card pops open (with a sound you can turn off) when a session finishes or stops to ask you
   something, and when a limit crosses 80% or 100%.

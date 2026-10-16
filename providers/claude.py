@@ -173,5 +173,6 @@ def activity():
             "detail": WAITING_FOR.get(s.get("waitingFor"), s.get("waitingFor")) if state == "waiting" else None,
             "where": "Claude app" if s.get("entrypoint") == "claude-desktop" else "Terminal",
             "pid": pid,  # a click brings forward the window above it: the Claude app, or the terminal
+            "since": s.get("statusUpdatedAt"),
         })
     return sessions

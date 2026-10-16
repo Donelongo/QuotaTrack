@@ -56,6 +56,7 @@ SPIN_FRAMES = 36
 HIDE_DELAY_MS = 250
 MENU_CLOSE_MS = 400   # the menu closes once the pointer has been away this long
 PEEK_MS = 5000
+DONE_LIST_MS = 5 * 60 * 1000  # a finished session stays in the card, as "Done", this long
 REDRAW_MS = 30_000
 ALERT_MARKS = (80, 100)
 
@@ -128,7 +129,7 @@ def normalize_sessions(items):
             continue
         state = s.get("state") if s.get("state") in STATES else "idle"
         sessions.append({"name": str(s.get("name") or "Session"), "state": state, "detail": s.get("detail"),
-                         "where": s.get("where"), "app": s.get("app"),
+                         "where": s.get("where"), "app": s.get("app"), "since": _ms(s.get("since")),
                          "pid": s.get("pid") if isinstance(s.get("pid"), int) else None})
     sessions.sort(key=lambda s: (STATES.index(s["state"]), s["name"].lower()))
     return sessions
@@ -151,6 +152,7 @@ class Provider:
         self.data = None
         self.error = load_error
         self.sessions = []
+        self.done_at = {}  # session name -> when it finished its turn (ms)
         self.seen_activity = False  # the first reading has no "before", so it never alerts
         self.custom = isinstance(module, custom_ais.CustomAI)
         self.installed = self.check_available()
@@ -181,6 +183,11 @@ class Provider:
         (spins) while one is busy. A session that has finished its turn is done and shows nothing."""
         states = {s["state"] for s in self.sessions}
         return next((state for state in ("waiting", "working") if state in states), None)
+
+    def listed(self, now):
+        """The sessions the card lists: a finished one only for DONE_LIST_MS after it finished."""
+        return [s for s in self.sessions
+                if s["state"] != "idle" or now - self.done_at.get(s["name"], now) < DONE_LIST_MS]
 
     def headline(self, now):
         if not self.data:
@@ -1296,6 +1303,12 @@ class App:
         A session that vanishes mid-turn was closed, not finished, so it is not announced."""
         before = {s["name"]: s["state"] for s in p.sessions}
         p.sessions = sessions
+        done_at = {}
+        for s in sessions:  # when each finished: as the provider says, else when it was first seen finished
+            if s["state"] == "idle":
+                done_at[s["name"]] = (now if before.get(s["name"]) == "working" else
+                                      p.done_at.get(s["name"]) or s["since"] or now)
+        p.done_at = done_at
         if not p.seen_activity:
             return
         event = None
@@ -1414,7 +1427,7 @@ class App:
 
     def draw_sessions(self, c, p, x, y, width, limit=5):
         """One line per live session: a coloured dot, its name, and what it's doing. A click on one opens it."""
-        sessions = p.sessions
+        sessions = p.listed(now_ms())
         px = self.px
         c.create_line(x, y - px(8), x + width, y - px(8), fill=TRACK)
         c.create_text(x, y, text="Sessions", fill=DIM, font=self.f_small, anchor="nw")
@@ -1500,7 +1513,7 @@ class App:
             c.create_text(pad, y, text=f"{fmt_pct(used)} Used", fill=DIM, font=self.f_small, anchor="nw")
             y += px(26)
 
-        if p.sessions:
+        if p.listed(now):
             y = self.draw_sessions(c, p, pad, y, inner)
 
         foot = []
