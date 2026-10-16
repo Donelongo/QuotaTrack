@@ -21,6 +21,7 @@ after an approval or input request. Sessions with nothing logged in the last 20 
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -250,21 +251,32 @@ def _session_meta(path):
         with open(path, "rb") as f:
             meta = json.loads(f.readline()).get("payload") or {}
     except (OSError, ValueError):
-        return "Codex", None
+        return "Codex", None, None
     cwd = meta.get("cwd")
     name = (os.path.basename(cwd.rstrip("\\/")) or cwd) if cwd else "Codex"
-    return name, meta.get("originator")
+    return name, meta.get("originator"), meta.get("id")
 
 
 # The Codex app from the Microsoft Store: starting it again brings the open one forward
 WIN_APP = r"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App"
+COLD_START_SECS = 8
+THREAD_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 def open_app(session):
-    """A click on a Codex session: bring forward the Codex it's running in."""
+    """A click on a Codex session: the Codex app opens that very chat (codex://threads/<id>); otherwise the
+    editor or terminal it runs in comes forward."""
     import _focus
     origin = str(session.get("app") or "").lower()
     if "desktop" in origin:
+        chat = str(session.get("chat") or "")
+        if THREAD_ID.match(chat):
+            cold = sys.platform == "win32" and not _focus.running(("ChatGPT.exe",))
+            if _focus.open_link(f"codex://threads/{chat}"):
+                if cold:  # a starting Codex shows its home screen: ask again once it's up
+                    time.sleep(COLD_START_SECS)
+                    _focus.open_link(f"codex://threads/{chat}")
+                return True
         if sys.platform == "win32":
             subprocess.Popen(["explorer.exe", WIN_APP])
             return True
@@ -299,7 +311,7 @@ def activity():
                 continue
             break
         if state:
-            name, origin = _session_meta(path)
-            sessions.append({"name": name, "state": state, "app": origin, "since": last_seen,
+            name, origin, chat = _session_meta(path)
+            sessions.append({"name": name, "state": state, "app": origin, "chat": chat, "since": last_seen,
                              "detail": "needs your approval" if state == "waiting" else None})
     return sessions

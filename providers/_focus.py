@@ -3,14 +3,31 @@
 focus_pid(pid)      the window of that process or the nearest program above it (the Claude app for a session
                     in it, the terminal for one in a terminal)
 focus_exe(names)    the same for a running program found by its file name, e.g. ("codex.exe",)
+open_link(url)      hands an app's own link (claude://..., codex://...) to that app, which opens that chat
 
 Both return True when a window came forward. Nothing is started, closed or sent anywhere.
 macOS: the nearest .app above the process is opened with `open`, which brings a running app forward.
 """
 
 import os
+import re
 import subprocess
 import sys
+
+_APP_LINK = re.compile(r"^(claude|codex)://[A-Za-z0-9/?=&_.-]+$")
+
+
+def open_link(url):
+    """Only the Claude and Codex apps' own links, made of plain characters, are ever handed on."""
+    if not _APP_LINK.match(url):
+        return False
+    if sys.platform == "win32":
+        os.startfile(url)
+        return True
+    try:
+        return subprocess.run(["open", url], capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 if sys.platform == "win32":
     import ctypes
@@ -117,6 +134,10 @@ if sys.platform == "win32":
                 return _raise(windows[pid])
             pid = procs.get(pid, (0, ""))[0]
         return False
+
+    def running(names):
+        wanted = {n.lower() for n in names}
+        return any(exe.lower() in wanted for _, exe in _processes().values())
 
     def focus_exe(names):
         wanted = {n.lower() for n in names}

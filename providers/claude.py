@@ -4,7 +4,7 @@ File: plan-usage-history.json in the Claude desktop app's data folder
   Windows  %APPDATA%\\Claude\\
   macOS    ~/Library/Application Support/Claude/
 ({"fh": five-hour %, "sd": seven-day %} per sample.) No token, no network.
-The file has no reset times, so they are worked out from when the figures last fell (limits reset on the hour).
+The file has no reset times, so they are worked out from when the figures last rose from 0 or fell.
 
 Activity: every running Claude Code session (desktop app or terminal) keeps ~/.claude/sessions/<pid>.json
 up to date with "status": busy / waiting (plus what it is waiting for) / idle. Only the .json files are read;
@@ -14,6 +14,7 @@ the .key files beside them hold tokens and are never opened. "idle" means the se
 import ctypes
 import json
 import os
+import re
 import sys
 import time
 
@@ -31,6 +32,8 @@ HISTORY = os.path.join(_DATA, "plan-usage-history.json")
 SESSIONS = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "sessions")
 
 # What Claude Code writes in "waitingFor", in plainer words
+# The Claude app's id for a chat, as its claude://code/continue link accepts it
+APP_SESSION_ID = re.compile(r"^local_[A-Za-z0-9-]{1,64}$")
 WAITING_FOR = {
     "dialog open": "asking you something",
     "input needed": "needs your input",
@@ -80,7 +83,8 @@ def _weekly_reset(samples, now):
 
 
 def _session_reset(samples):
-    """The 5-hour window starts at the top of the hour of the first use after the last one ended."""
+    """The 5-hour window starts with the first use after the last one ended. Under 0.5% shows as 0, so the
+    window has usually begun by the last 0 reading before the figure rose: that reading is taken as the start."""
     if not samples or not samples[-1]["u"].get("fh"):
         return None
     i = len(samples) - 1
@@ -91,11 +95,9 @@ def _session_reset(samples):
             break
         i -= 1
     start = samples[i]["t"]
-    if i > 0:
-        gap = samples[i]["t"] - samples[i - 1]["t"]
-        if gap <= HOUR:
-            start -= gap / 2
-    return start // HOUR * HOUR + FIVE_H
+    if i > 0 and start - samples[i - 1]["t"] <= HOUR:
+        start = samples[i - 1]["t"]
+    return start + FIVE_H
 
 
 def read():
@@ -148,6 +150,15 @@ def _alive(pid):
         return True
 
 
+def open_app(session):
+    """A click on a session: the Claude app opens that very chat; a terminal session brings its terminal up."""
+    import _focus
+    chat = str(session.get("chat") or "")
+    if APP_SESSION_ID.match(chat) and _focus.open_link(f"claude://code/continue?session={chat}&source=quotatrack"):
+        return True
+    return bool(session.get("pid")) and _focus.focus_pid(session["pid"])
+
+
 def activity():
     try:
         names = os.listdir(SESSIONS)
@@ -174,5 +185,6 @@ def activity():
             "where": "Claude app" if s.get("entrypoint") == "claude-desktop" else "Terminal",
             "pid": pid,  # a click brings forward the window above it: the Claude app, or the terminal
             "since": s.get("statusUpdatedAt"),
+            "chat": s.get("hostSessionId") if s.get("entrypoint") == "claude-desktop" else None,
         })
     return sessions

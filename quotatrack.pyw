@@ -129,7 +129,8 @@ def normalize_sessions(items):
             continue
         state = s.get("state") if s.get("state") in STATES else "idle"
         sessions.append({"name": str(s.get("name") or "Session"), "state": state, "detail": s.get("detail"),
-                         "where": s.get("where"), "app": s.get("app"), "since": _ms(s.get("since")),
+                         "where": s.get("where"), "app": s.get("app"), "chat": s.get("chat"),
+                         "since": _ms(s.get("since")),
                          "pid": s.get("pid") if isinstance(s.get("pid"), int) else None})
     sessions.sort(key=lambda s: (STATES.index(s["state"]), s["name"].lower()))
     return sessions
