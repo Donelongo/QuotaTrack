@@ -4,7 +4,15 @@ File: plan-usage-history.json in the Claude desktop app's data folder
   Windows  %APPDATA%\\Claude\\
   macOS    ~/Library/Application Support/Claude/
 ({"fh": five-hour %, "sd": seven-day %} per sample.) No token, no network.
-The file has no reset times, so they are worked out from when the figures last rose from 0 or fell.
+The file has no reset times, so they are worked out from when the figures last rose from 0 or fell. The app
+only adds a sample while it is open and checking, so the file can fall hours behind.
+
+Live mode (off unless you turn it on in QuotaTrack's menu) asks Anthropic for the same figures Claude Code's
+/usage shows, with exact reset times. That request is a usage lookup, not a message, so it uses none of your quota.
+It reads Claude Code's sign-in from ~/.claude/.credentials.json (accessToken and expiresAt only) and sends it only to
+https://api.anthropic.com/api/oauth/. QuotaTrack never refreshes or writes that file: once the sign-in has expired it
+runs `claude auth status`, and Claude Code renews its own sign-in. It asks every minute, backs off if rate-limited,
+and falls back to the desktop app's file if the request fails. See _live.py for the rules every live provider follows.
 
 Activity: every running Claude Code session (desktop app or terminal) keeps ~/.claude/sessions/<pid>.json
 up to date with "status": busy / waiting (plus what it is waiting for) / idle. Only the .json files are read;
@@ -12,15 +20,23 @@ the .key files beside them hold tokens and are never opened. "idle" means the se
 """
 
 import ctypes
+import datetime as dt
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
+
+import _live
 
 NAME = "Claude"
 ORDER = 10
 ICON = "claude"
+
+SETTINGS = {"live": ("Live usage from anthropic.com (uses your Claude Code sign-in)", False)}
+settings = {}
 
 if sys.platform == "win32":
     _DATA = os.path.join(os.environ.get("APPDATA", ""), "Claude")
@@ -29,7 +45,15 @@ elif sys.platform == "darwin":
 else:
     _DATA = os.path.expanduser("~/.config/Claude")
 HISTORY = os.path.join(_DATA, "plan-usage-history.json")
-SESSIONS = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "sessions")
+_CODE = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+SESSIONS = os.path.join(_CODE, "sessions")
+CREDENTIALS = os.path.join(_CODE, ".credentials.json")
+URL = "https://api.anthropic.com/api/oauth/usage"
+LIVE_LABELS = {"five_hour": "Current session", "seven_day": "Weekly · all models",
+               "seven_day_opus": "Weekly · Opus", "seven_day_sonnet": "Weekly · Sonnet"}
+RENEW_GAP = 600  # seconds between asks to Claude Code to renew an expired sign-in
+_throttle = _live.Throttle(every=60)
+_renewed = [0.0]
 
 # What Claude Code writes in "waitingFor", in plainer words
 # The Claude app's id for a chat, as its claude://code/continue link accepts it
@@ -100,7 +124,88 @@ def _session_reset(samples):
     return start + FIVE_H
 
 
+# ---------- live mode ----------
+
+def _signin():
+    """(accessToken, expiresAt in ms) from Claude Code's credentials file, or (None, None)."""
+    try:
+        with open(CREDENTIALS, encoding="utf-8") as f:
+            oauth = json.load(f).get("claudeAiOauth") or {}
+    except (OSError, ValueError, AttributeError):
+        return None, None
+    token, expires = oauth.get("accessToken"), oauth.get("expiresAt")
+    return (token if isinstance(token, str) and token else None,
+            expires if isinstance(expires, (int, float)) else None)
+
+
+def _fresh(expires, margin=60):
+    return expires is None or expires / 1000 > time.time() + margin
+
+
+def _renew():
+    """Claude Code renews its own sign-in when it starts; `claude auth status` is the lightest way to start it."""
+    exe = shutil.which("claude")
+    if not exe:
+        return
+    try:
+        subprocess.run([exe, "auth", "status"], capture_output=True, timeout=60, stdin=subprocess.DEVNULL,
+                       creationflags=0x08000000 if sys.platform == "win32" else 0)  # CREATE_NO_WINDOW
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _token():
+    token, expires = _signin()
+    if token and _fresh(expires):
+        return token
+    if time.time() - _renewed[0] >= RENEW_GAP:
+        _renewed[0] = time.time()
+        _renew()
+        token, expires = _signin()
+        if token and _fresh(expires, 0):
+            return token
+    if not token:
+        raise RuntimeError("Claude Code isn't signed in here. Run claude in a terminal and sign in.")
+    raise RuntimeError("Claude Code's sign-in has expired. Run claude in a terminal to renew it.")
+
+
+def _iso_ms(v):
+    try:
+        return dt.datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp() * 1000
+    except ValueError:
+        return None
+
+
+def _fetch_live():
+    reply = _live.get_json(URL, {"Authorization": f"Bearer {_token()}", "anthropic-beta": "oauth-2025-04-20"},
+                           "https://api.anthropic.com/api/oauth/", "Anthropic",
+                           "Claude Code's sign-in was turned down. Run claude in a terminal to sign in again.")
+    windows = []
+    for key, label in LIVE_LABELS.items():
+        w = reply.get(key)
+        if isinstance(w, dict) and isinstance(w.get("utilization"), (int, float)):
+            windows.append({"label": label, "used": w["utilization"], "resets_at": _iso_ms(w.get("resets_at"))})
+    if not windows:
+        raise RuntimeError("Anthropic sent no usage limits for this account.")
+    return {"windows": windows, "updated": time.time(), "note": "Live from Anthropic"}
+
+
+# ---------- reading ----------
+
 def read():
+    live_error = None
+    if settings.get("live"):
+        try:
+            return _throttle.get(_fetch_live, "Waiting to ask Anthropic again.")
+        except RuntimeError as e:
+            live_error = str(e)
+    logged = _read_history()
+    if live_error:
+        logged["note"] = f"Live usage unavailable: {live_error} Showing the desktop app's last saved figures."
+    return logged
+
+
+def _read_history():
     try:
         samples = _samples()
     except FileNotFoundError:
