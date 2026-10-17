@@ -7,6 +7,7 @@ open_link(url)      hands an app's own link (claude://..., codex://...) to that 
 
 Both return True when a window came forward. Nothing is started, closed or sent anywhere.
 macOS: the nearest .app above the process is opened with `open`, which brings a running app forward.
+Linux: the nearest window above the process is raised with wmctrl when it's installed; links go to xdg-open.
 """
 
 import os
@@ -25,7 +26,8 @@ def open_link(url):
         os.startfile(url)
         return True
     try:
-        return subprocess.run(["open", url], capture_output=True, timeout=10).returncode == 0
+        opener = "open" if sys.platform == "darwin" else "xdg-open"
+        return subprocess.run([opener, url], capture_output=True, timeout=10).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -143,7 +145,7 @@ if sys.platform == "win32":
         wanted = {n.lower() for n in names}
         return any(focus_pid(pid) for pid, (_, exe) in _processes().items() if exe.lower() in wanted)
 
-else:
+elif sys.platform == "darwin":
     def _ps(pid):
         try:
             out = subprocess.run(["ps", "-o", "ppid=", "-o", "comm=", "-p", str(pid)], capture_output=True,
@@ -171,3 +173,47 @@ else:
 
     def focus_exe(names):
         return any(_open(os.path.splitext(n)[0]) for n in names)
+
+else:  # Linux: windows are found and raised with wmctrl, if it's installed (nothing happens without it)
+    def _parent(pid):
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                return int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return 0
+
+    def _wmctrl(*args):
+        try:
+            return subprocess.run(["wmctrl", *args], capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    def focus_pid(pid):
+        listed = _wmctrl("-lp")
+        if not listed or listed.returncode:
+            return False
+        windows = {}  # pid -> its first window
+        for line in listed.stdout.splitlines():
+            cols = line.split(None, 3)
+            if len(cols) >= 3 and cols[2].isdigit():
+                windows.setdefault(int(cols[2]), cols[0])
+        seen = set()
+        while pid > 1 and pid not in seen and len(seen) < 16:
+            seen.add(pid)
+            if pid in windows:
+                done = _wmctrl("-i", "-a", windows[pid])
+                return bool(done) and done.returncode == 0
+            pid = _parent(pid)
+        return False
+
+    def focus_exe(names):
+        wanted = {os.path.splitext(n)[0].lower() for n in names}
+        for entry in os.listdir("/proc"):
+            if entry.isdigit():
+                try:
+                    with open(f"/proc/{entry}/comm") as f:
+                        if f.read().strip().lower() in wanted and focus_pid(int(entry)):
+                            return True
+                except OSError:
+                    pass
+        return False

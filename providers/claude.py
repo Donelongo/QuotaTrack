@@ -3,6 +3,7 @@
 File: plan-usage-history.json in the Claude desktop app's data folder
   Windows  %APPDATA%\\Claude\\
   macOS    ~/Library/Application Support/Claude/
+  Linux    ~/.config/Claude/
 ({"fh": five-hour %, "sd": seven-day %} per sample.) No token, no network.
 The file has no reset times, so they are worked out from when the figures last rose from 0 or fell. The app
 only adds a sample while it is open and checking, so the file can fall hours behind.
@@ -43,7 +44,7 @@ if sys.platform == "win32":
 elif sys.platform == "darwin":
     _DATA = os.path.expanduser("~/Library/Application Support/Claude")
 else:
-    _DATA = os.path.expanduser("~/.config/Claude")
+    _DATA = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "Claude")
 HISTORY = os.path.join(_DATA, "plan-usage-history.json")
 _CODE = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 SESSIONS = os.path.join(_CODE, "sessions")

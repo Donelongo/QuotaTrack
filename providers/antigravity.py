@@ -152,7 +152,22 @@ def _ports(pid):
             port = addr.rsplit(":", 1)[-1]
             if port.isdigit():
                 ports.add(int(port))
+        if not ports and os.path.isdir("/proc/net"):
+            ports = _proc_ports(pid)
     return sorted(ports)
+
+
+def _proc_ports(pid):
+    """Linux without lsof: the process's listening sockets on 127.0.0.1, matched up through /proc."""
+    try:
+        inodes = {os.readlink(f"/proc/{pid}/fd/{fd}")[8:-1] for fd in os.listdir(f"/proc/{pid}/fd")}
+        with open("/proc/net/tcp") as f:
+            rows = [line.split() for line in f.readlines()[1:]]
+    except OSError:
+        return set()
+    # local address 0100007F:<port in hex> is 127.0.0.1; state 0A is LISTEN; column 9 is the socket's inode
+    return {int(r[1].split(":")[1], 16) for r in rows
+            if len(r) > 9 and r[1].startswith("0100007F:") and r[3] == "0A" and r[9] in inodes}
 
 
 def _ask(csrf, ports):

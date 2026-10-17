@@ -1,4 +1,5 @@
-# PyInstaller recipe for the packaged app: QuotaTrack.exe on Windows, QuotaTrack.app on macOS.
+# PyInstaller recipe for the packaged app: QuotaTrack.exe on Windows, QuotaTrack.app on macOS, a single
+# QuotaTrack program on Linux.
 # Build it from the repo folder with:  pip install pyinstaller  then  pyinstaller packaging/QuotaTrack.spec
 # The app then runs with no Python installed, no console window and (on macOS) no Dock icon.
 
@@ -47,5 +48,5 @@ if sys.platform == "darwin":
             "NSHighResolutionCapable": True,
         },
     )
-else:
+else:  # Windows and Linux: one file that unpacks itself when it starts
     exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="QuotaTrack", console=False, upx=False)
