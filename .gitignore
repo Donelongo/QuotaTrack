@@ -10,3 +10,8 @@ Thumbs.db
 custom_ais.json
 *.cache.json
 *.stackdump
+*.logo.png
+
+# Packaged-app builds (see packaging/)
+build/
+dist/

@@ -6,7 +6,7 @@
 a slim rail on the edge of your screen.**
 
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white)](#install)
-[![macOS](https://img.shields.io/badge/macOS-untested-lightgrey?logo=apple&logoColor=white)](#install)
+[![macOS](https://img.shields.io/badge/macOS-beta-lightgrey?logo=apple&logoColor=white)](#install)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![No dependencies](https://img.shields.io/badge/dependencies-none-22c55e)](#how-it-works)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -36,7 +36,7 @@ It only shows the AIs you actually have installed, so it works out of the box on
 
 | AI | Usage limits | Working / waiting | Needs a switch? |
 | --- | :---: | :---: | :---: |
-| **Claude** (desktop app and Claude Code) | ✅ | ✅ | No |
+| **Claude** (desktop app and Claude Code) | ✅ | ✅ | No; optional live mode |
 | **Codex** (ChatGPT plan) | ✅ | ✅ | No; optional live mode |
 | **Antigravity** | ✅ | — | No |
 | **GitHub Copilot** | ✅ | — | Yes |
@@ -51,6 +51,25 @@ only does that once you turn that AI's **Live usage** switch on in the right-cli
 
 ## Install
 
+### Download the app (easiest)
+
+Grab the latest build from [**Releases**](https://github.com/Donelongo/QuotaTrack/releases/latest). There's
+nothing else to install, not even Python.
+
+- **Windows:** download `QuotaTrack-Windows.exe` and double-click it. Windows may say it "protected your PC"
+  because the app isn't signed: click **More info → Run anyway**.
+- **macOS** *(Apple silicon)*: download `QuotaTrack-macOS.zip`, unzip it and drag **QuotaTrack** into
+  **Applications**. The app isn't signed, so the first time, right-click it and choose **Open** (or allow it under
+  **System Settings → Privacy & Security**).
+
+The app runs in the background: no window in the taskbar, no Dock icon, just the rail. The first time it runs it
+sets itself to **start when you sign in** (and restarts itself if it ever crashes on macOS), so it's always
+there. Turn that off in the right-click menu if you'd rather not, and choose **Quit QuotaTrack** there to close
+it. Its settings are kept in `%APPDATA%\QuotaTrack` on Windows and `~/Library/Application Support/QuotaTrack`
+on macOS.
+
+### Run from source
+
 QuotaTrack is plain Python with no packages to install.
 
 **Windows**
@@ -62,7 +81,7 @@ QuotaTrack is plain Python with no packages to install.
    ```
 3. Double-click **`quotatrack.pyw`**.
 
-**macOS** *(not tested yet; reports welcome)*
+**macOS**
 
 ```bash
 git clone https://github.com/Donelongo/QuotaTrack.git
@@ -78,6 +97,9 @@ macOS).
 
 Want to look around first? Run `python quotatrack.pyw --demo` to see it with sample figures.
 
+**Build the app yourself:** `pip install pyinstaller`, then `pyinstaller packaging/QuotaTrack.spec`; it lands in
+`dist/`. Pushing a `v*` tag builds both apps on GitHub and attaches them to a release.
+
 ## Using it
 
 | Do this | To |
@@ -92,7 +114,7 @@ Want to look around first? Run `python quotatrack.pyw --demo` to see it with sam
 
 The menu has switches for **Auto-hide**, **Dock on left edge**, **Sounds** and **Start with Windows**; a
 **Live usage** switch for each AI that needs one; and your own AIs. It closes when your pointer leaves it.
-Settings are saved in `config.json` next to the app.
+Settings are saved in `config.json` next to `quotatrack.pyw` (or in the folder above, for the downloaded app).
 
 ## Privacy and safety
 
@@ -102,7 +124,9 @@ QuotaTrack is built to be safe to run:
   makes no network requests, and it never changes another app's settings or files.
 - **Live modes are opt-in, one AI at a time.** When you turn one on, QuotaTrack reads the sign-in that AI's own
   app saved, without refreshing or rewriting it. It sends that sign-in only to the service's own address, and
-  refuses redirects so it can't be forwarded anywhere else. It asks at most every 5 minutes.
+  refuses redirects so it can't be forwarded anywhere else. It asks at most every 5 minutes (Claude: every minute;
+  its usage lookup isn't a message, so it costs none of your quota). If Claude Code's sign-in has expired,
+  QuotaTrack runs `claude auth status` so Claude Code renews it itself.
 - **No tokens in the repo.** `config.json` and `custom_ais.json`, which can hold API keys, are git-ignored.
 - **Small and readable.** No third-party packages. Each AI is one short file in [`providers/`](providers), so
   you can check exactly what it reads.
@@ -114,6 +138,7 @@ QuotaTrack is built to be safe to run:
 | --- | --- | --- |
 | Claude | The Claude desktop app's `plan-usage-history.json` | Claude Code's `~/.claude/sessions/*.json` (the `.key` files beside them are never opened) |
 | Codex | The rate limits Codex logs in `~/.codex/sessions` after each message | `task_started` / `task_complete` events in the same logs |
+| Claude, live mode | `api.anthropic.com/api/oauth/usage` (what Claude Code's `/usage` shows), with `accessToken` from `~/.claude/.credentials.json` | — |
 | Codex, live mode | `chatgpt.com/backend-api/wham/usage`, with `access_token` and `account_id` from `~/.codex/auth.json` | — |
 | Antigravity | Antigravity's own local server on `127.0.0.1`, while Antigravity is open (nothing leaves your PC) | — |
 | Copilot | `api.github.com/copilot_internal/user`, with the GitHub CLI's sign-in | — |
@@ -127,9 +152,10 @@ QuotaTrack is built to be safe to run:
 
 - **Codex, Copilot, Cursor, Kimi and Antigravity** show the service's own figures. In Codex's default mode they're
   as of your last Codex message. Turn on live mode for the same numbers as the Codex app's **Usage remaining** menu.
-- **Claude** can be up to about 15 minutes behind. The Claude desktop app only saves your usage to disk about
-  every 15 minutes, and QuotaTrack reads that file rather than your sign-in. Opening Claude's own Usage panel
-  should make it save a fresh reading. Reset times are worked out from the saved readings, so they're marked with `~`.
+- **Claude** in its default mode reads the usage the Claude desktop app saves to disk. The app saves a reading
+  about every 15 minutes, but only while it's open and checking, so it can fall hours behind. Reset times are worked
+  out from the saved readings, so they're marked with `~`. Turn on live mode for the same exact numbers and reset
+  times as Claude Code's `/usage`, refreshed every minute.
 
 ## Add your own AI
 

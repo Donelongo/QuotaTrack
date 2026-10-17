@@ -37,10 +37,36 @@ import zlib
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+FROZEN = getattr(sys, "frozen", False)  # running as the packaged app (QuotaTrack.exe / QuotaTrack.app)
+HERE = getattr(sys, "_MEIPASS", None) if FROZEN else os.path.dirname(os.path.abspath(__file__))
 PROVIDERS_DIR = os.path.join(HERE, "providers")
-CONFIG_PATH = os.path.join(HERE, "config.json")
-CUSTOM_PATH = os.path.join(HERE, "custom_ais.json")  # AIs added from the menu; can hold API keys, so not in git
+
+
+def _data_dir():
+    """Where settings live: next to the script when run from source; for the packaged app, whose own folder is
+    read-only or temporary, the usual per-user place."""
+    if not FROZEN:
+        return HERE
+    if IS_WIN:
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif IS_MAC:
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    path = os.path.join(base, "QuotaTrack")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+DATA_DIR = _data_dir()
+# The packaged app's built-in providers are sealed inside it, so your own go in a providers folder beside your
+# settings instead (a file there with a built-in's name replaces it).
+USER_PROVIDERS_DIR = os.path.join(DATA_DIR, "providers") if FROZEN else PROVIDERS_DIR
+CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+CUSTOM_PATH = os.path.join(DATA_DIR, "custom_ais.json")  # AIs added from the menu; can hold API keys, so not in git
+os.environ["QUOTATRACK_DATA"] = DATA_DIR  # where providers keep their caches
+if FROZEN:
+    sys.dont_write_bytecode = True  # never write into the app itself (on macOS that breaks its signature)
 
 sys.path.insert(0, HERE)
 sys.path.insert(1, PROVIDERS_DIR)  # so providers can share helpers such as providers/_live.py
@@ -69,7 +95,8 @@ YELLOW = "#facc15"
 RED = "#ef4444"
 BLUE = "#60a5fa"    # waiting for your reply (blinks): a colour the usage scale never uses
 
-DEFAULTS = {"edge": "right", "offset": 160, "autohide": False, "sounds": True, "provider_settings": {}}
+DEFAULTS = {"edge": "right", "offset": 160, "autohide": False, "sounds": True, "provider_settings": {},
+            "autostart_offered": False}
 
 
 def now_ms():
@@ -200,15 +227,17 @@ class Provider:
 
 def load_providers():
     providers = []
-    try:
-        names = sorted(os.listdir(PROVIDERS_DIR))
-    except OSError:
-        names = []
-    for fn in names:
+    files = {}
+    for folder in dict.fromkeys((PROVIDERS_DIR, USER_PROVIDERS_DIR)):  # your own folder last, so it wins
+        try:
+            files.update({fn: os.path.join(folder, fn) for fn in os.listdir(folder)})
+        except OSError:
+            pass
+    for fn, path in sorted(files.items()):
         if not fn.endswith(".py") or fn.startswith("_"):
             continue
         key = fn[:-3]
-        spec = importlib.util.spec_from_file_location(f"quotatrack_provider_{key}", os.path.join(PROVIDERS_DIR, fn))
+        spec = importlib.util.spec_from_file_location(f"quotatrack_provider_{key}", path)
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
@@ -488,13 +517,16 @@ _LAUNCH_AGENT = os.path.expanduser("~/Library/LaunchAgents/com.quotatrack.plist"
 
 
 def _launch_command():
-    """How to start this copy of QuotaTrack with no console window."""
+    """How to start this copy of QuotaTrack with no console window: the packaged app on its own, or Python and
+    this script."""
+    if FROZEN:
+        return [sys.executable]
     python = sys.executable
     if IS_WIN:
         windowless = os.path.join(os.path.dirname(python), "pythonw.exe")
         if os.path.isfile(windowless):
             python = windowless
-    return python, os.path.abspath(__file__)
+    return [python, os.path.abspath(__file__)]
 
 
 def autostart_enabled():
@@ -515,8 +547,8 @@ def set_autostart(on):
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
             if on:
-                python, script = _launch_command()
-                winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, f'"{python}" "{script}"')
+                command = " ".join(f'"{part}"' for part in _launch_command())
+                winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, command)
             else:
                 try:
                     winreg.DeleteValue(key, AUTOSTART_NAME)
@@ -524,18 +556,12 @@ def set_autostart(on):
                     pass
     elif IS_MAC:
         if on:
-            python, script = _launch_command()
+            import plistlib
             os.makedirs(os.path.dirname(_LAUNCH_AGENT), exist_ok=True)
-            with open(_LAUNCH_AGENT, "w", encoding="utf-8") as f:
-                f.write(
-                    '<?xml version="1.0" encoding="UTF-8"?>\n'
-                    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-                    '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-                    '<plist version="1.0"><dict>\n'
-                    '  <key>Label</key><string>com.quotatrack</string>\n'
-                    f'  <key>ProgramArguments</key><array><string>{python}</string><string>{script}</string></array>\n'
-                    '  <key>RunAtLoad</key><true/>\n'
-                    '</dict></plist>\n')
+            with open(_LAUNCH_AGENT, "wb") as f:
+                plistlib.dump({"Label": "com.quotatrack", "ProgramArguments": _launch_command(), "RunAtLoad": True,
+                               # started again if it ever crashes, but not after you choose Quit
+                               "KeepAlive": {"SuccessfulExit": False}, "ProcessType": "Interactive"}, f)
         elif os.path.isfile(_LAUNCH_AGENT):
             os.remove(_LAUNCH_AGENT)
 
@@ -545,6 +571,37 @@ def open_folder(path):
         os.startfile(path)
     else:
         subprocess.Popen(["open" if IS_MAC else "xdg-open", path])
+
+
+def borderless(win):
+    """An always-on-top window with no title bar. On macOS overrideredirect alone can leave the close, minimise
+    and full-screen buttons on a window, so its style is set to plain as well."""
+    if IS_MAC:
+        try:
+            win.tk.call("::tk::unsupported::MacWindowStyle", "style", win._w, "plain", "none")
+        except tk.TclError:
+            pass
+    win.overrideredirect(True)
+    win.attributes("-topmost", True)
+
+
+def mac_background_app():
+    """macOS: no Dock icon or app menu bar, like other menu-bar-style tools; QuotaTrack lives on its rail and
+    right-click menu. (The packaged app also says so in its Info.plist; this covers running the script.)"""
+    if not IS_MAC:
+        return
+    try:
+        objc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.A.dylib")
+        objc.objc_getClass.restype = objc.sel_registerName.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        send = ctypes.cast(objc.objc_msgSend, ctypes.c_void_p).value
+        get = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(send)
+        set_long = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long)(send)
+        app = get(objc.objc_getClass(b"NSApplication"), objc.sel_registerName(b"sharedApplication"))
+        if app:
+            set_long(app, objc.sel_registerName(b"setActivationPolicy:"), 1)  # NSApplicationActivationPolicyAccessory
+    except (OSError, AttributeError):
+        pass
 
 
 def win32_style(win, rounded):
@@ -781,8 +838,7 @@ class _ShapeBase:
 
     def __init__(self, root):
         self.win = tk.Toplevel(root)
-        self.win.overrideredirect(True)
-        self.win.attributes("-topmost", True)
+        borderless(self.win)
         self.key = None
         self.visible = False
 
@@ -926,8 +982,7 @@ class RailMenu:
     def __init__(self, app):
         self.app = app
         self.win = tk.Toplevel(app.root)
-        self.win.overrideredirect(True)
-        self.win.attributes("-topmost", True)
+        borderless(self.win)
         self.win.configure(bg=BG)
         self.canvas = tk.Canvas(self.win, bg=BG, highlightthickness=0, bd=0)
         self.canvas.pack(fill="both", expand=True)
@@ -1081,8 +1136,7 @@ class App:
         self.ring_inner = self.ring / 2 - 0.5 - max(3.0, self.ring * 0.11)
         self.anim_items = {}  # provider key -> (canvas item, "working" | "waiting")
 
-        root.overrideredirect(True)
-        root.attributes("-topmost", True)
+        borderless(root)
         root.configure(bg=BG)
         # The straight middle of each shape is an ordinary window holding a canvas; the curved ends above and
         # below it are Shapes. Canvases are placed so their y=0 is the top of the whole shape.
@@ -1103,6 +1157,7 @@ class App:
         self.menu_away_since = None
         self.dialog = None
         self.apply_provider_settings()
+        self.keep_running()
 
         self.draw_column()
         root.update_idletasks()
@@ -1164,7 +1219,7 @@ class App:
         rows += [{"kind": "header", "label": "Your AIs"}, action("Add an AI…", lambda: self.open_dialog(None), "+")]
         rows += [action(p.name, lambda p=p: self.open_dialog(p), "Edit") for p in self.providers if p.custom]
         rows += [{"kind": "separator"},
-                 action("Open providers folder", lambda: open_folder(PROVIDERS_DIR)),
+                 action("Open providers folder", self.open_providers_folder),
                  action("Quit QuotaTrack", self.root.destroy, danger=True)]
         return rows
 
@@ -1217,8 +1272,7 @@ class App:
 
     def popup(self):
         win = tk.Toplevel(self.root)
-        win.overrideredirect(True)
-        win.attributes("-topmost", True)
+        borderless(win)
         win.configure(bg=BG)
         canvas = tk.Canvas(win, bg=BG, highlightthickness=0, bd=0)
         canvas.place(x=0, y=0)
@@ -1370,7 +1424,8 @@ class App:
         if p.icon in GLYPHS:
             return glyph_image(size, p.icon)
         if isinstance(p.icon, str) and p.icon.lower().endswith(".png"):
-            path = os.path.join(PROVIDERS_DIR, p.icon)  # an absolute path stays as it is
+            folder = os.path.dirname(getattr(p.module, "__file__", None) or os.path.join(PROVIDERS_DIR, "_"))
+            path = os.path.join(folder, p.icon)  # beside the provider's file; an absolute path stays as it is
             drop_grey = bool(getattr(p.module, "ICON_DROP_GREY", False))
             drop_dark = bool(getattr(p.module, "ICON_DROP_DARK", False))
             mono = bool(getattr(p.module, "ICON_MONO", False))
@@ -1684,6 +1739,29 @@ class App:
         except OSError:
             pass  # the switch redraws from autostart_enabled(), so it shows what actually took effect
 
+    def keep_running(self):
+        """The packaged app is meant to always be there: the first time it runs it starts itself at login
+        (turn that off in the menu and it stays off). If it already starts at login, point that at this copy,
+        in case the app was moved."""
+        if not (IS_WIN or IS_MAC) or "--demo" in sys.argv:
+            return
+        if FROZEN and not self.cfg["autostart_offered"]:
+            self.cfg["autostart_offered"] = True
+            save_config(self.cfg)
+            self.set_autostart(True)
+        elif autostart_enabled():
+            self.set_autostart(True)
+
+    def open_providers_folder(self):
+        if FROZEN and not os.path.isdir(USER_PROVIDERS_DIR):
+            os.makedirs(USER_PROVIDERS_DIR, exist_ok=True)
+            try:  # a template to start your own from
+                import shutil
+                shutil.copy(os.path.join(PROVIDERS_DIR, "_template.py"), USER_PROVIDERS_DIR)
+            except OSError:
+                pass
+        open_folder(USER_PROVIDERS_DIR)
+
     def set_sounds(self, on):
         self.cfg["sounds"] = on
         save_config(self.cfg)
@@ -1704,8 +1782,13 @@ def main():
     win32_dpi_aware()
     root = tk.Tk()
     root.title("QuotaTrack")
+    if IS_MAC:
+        root.withdraw()  # shown again once it's borderless, so it never appears with a title bar first
+        mac_background_app()
     providers = demo_providers() if "--demo" in sys.argv else load_providers()
     App(root, providers)
+    if IS_MAC:
+        root.deiconify()
     root.mainloop()
 
 

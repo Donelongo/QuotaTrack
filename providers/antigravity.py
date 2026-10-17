@@ -6,7 +6,7 @@ carries the --csrf_token the server expects), finds its local port, and asks the
 relaxed for 127.0.0.1 only, because that server signs its own. No Google login is read or used.
 
 Antigravity reports what *remains*; QuotaTrack shows what's used. When Antigravity is closed, the last reading is
-kept (in antigravity.cache.json next to this file) and shown with its time.
+kept (in antigravity.cache.json beside your QuotaTrack settings) and shown with its time.
 """
 
 import datetime as dt
@@ -22,9 +22,15 @@ NAME = "Antigravity"
 ORDER = 40
 
 
+DATA_DIR = os.environ.get("QUOTATRACK_DATA") or os.path.dirname(os.path.abspath(__file__))
+
+
 def _installed_logo():
-    """Antigravity's own logo, from its installed files (so no copy of it lives in this project).
-    The only PNG it ships is its Start-menu tile, so QuotaTrack drops the tile's grey background."""
+    """Antigravity's own logo, from its installed files (so no copy of it lives in this project), so it's whatever
+    version of the logo your Antigravity has. On Windows the only PNG it ships is its Start-menu tile; on macOS
+    it's the app icon. QuotaTrack drops the grey tile or shadow around the mark either way."""
+    if sys.platform == "darwin":
+        return _mac_logo()
     programs = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")
     for app in ("Antigravity IDE", "Antigravity"):
         path = os.path.join(programs, app, "resources", "app", "resources", "win32", "code_150x150.png")
@@ -33,11 +39,53 @@ def _installed_logo():
     return None
 
 
-ICON = _installed_logo()  # None (not installed here, or on macOS) shows "A"
+def _mac_logo():
+    """The app icon from Antigravity.app: an .icns file holds the icon at several sizes, the larger ones as plain
+    PNGs, so the smallest of those that's still sharp (128 px or more) is copied out next to QuotaTrack's
+    settings, and copied again whenever Antigravity updates its icon."""
+    import plistlib
+    import struct
+    for folder in ("/Applications", os.path.expanduser("~/Applications")):
+        for app in ("Antigravity.app", "Antigravity IDE.app"):
+            resources = os.path.join(folder, app, "Contents", "Resources")
+            try:
+                with open(os.path.join(folder, app, "Contents", "Info.plist"), "rb") as f:
+                    name = plistlib.load(f).get("CFBundleIconFile") or "Antigravity"
+                icns = os.path.join(resources, name if name.endswith(".icns") else name + ".icns")
+                out = os.path.join(DATA_DIR, "antigravity.logo.png")
+                if os.path.isfile(out) and os.path.getmtime(out) >= os.path.getmtime(icns):
+                    return out
+                with open(icns, "rb") as f:
+                    data = f.read()
+            except (OSError, ValueError, AttributeError):
+                continue
+            pngs, pos = [], 8
+            while pos + 8 <= len(data):
+                size = struct.unpack(">I", data[pos + 4:pos + 8])[0]
+                body = data[pos + 8:pos + size]
+                if body[:8] == b"\x89PNG\r\n\x1a\n" and len(body) >= 24:
+                    pngs.append((struct.unpack(">I", body[16:20])[0], body))
+                if size < 8:
+                    break
+                pos += size
+            if not pngs:
+                continue
+            sharp = [p for p in pngs if p[0] >= 128]
+            _, png = min(sharp) if sharp else max(pngs)
+            try:
+                with open(out, "wb") as f:
+                    f.write(png)
+                return out
+            except OSError:
+                return None
+    return None
+
+
+ICON = _installed_logo()  # None (Antigravity not installed here) shows "A"
 ICON_DROP_GREY = True
 
 STATE_DIRS = [os.path.join(os.path.expanduser("~"), ".gemini", d) for d in ("antigravity", "antigravity-ide")]
-CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "antigravity.cache.json")
+CACHE = os.path.join(DATA_DIR, "antigravity.cache.json")
 SERVICE = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
 EVERY = 120  # seconds between asks; each one makes Antigravity refresh its quota, so don't hammer it
 
