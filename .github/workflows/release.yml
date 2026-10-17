@@ -1,4 +1,4 @@
-# Builds the packaged apps (QuotaTrack.exe and QuotaTrack.app) with PyInstaller.
+# Builds the packaged apps (QuotaTrack.exe, QuotaTrack.app and a Linux QuotaTrack) with PyInstaller.
 # Push a tag such as v1.0.0 and they're attached to a GitHub release of that name;
 # run it by hand from the Actions tab to just get the files as a download.
 name: Build apps
@@ -20,12 +20,19 @@ jobs:
             file: QuotaTrack-Windows.exe
           - os: macos-latest  # Apple silicon
             file: QuotaTrack-macOS.zip
+          - os: ubuntu-22.04  # the oldest runner, so the app runs on distros with an older glibc too
+            file: QuotaTrack-Linux.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install Tk for Python on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tk8.6 libtk8.6 libxext6
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - name: Check that Python has Tk
+        run: python -c "import tkinter; print(tkinter.TkVersion)"
       - run: pip install pyinstaller==6.22.3
       - run: pyinstaller --noconfirm packaging/QuotaTrack.spec
 
@@ -35,6 +42,9 @@ jobs:
       - name: Zip the Mac app
         if: runner.os == 'macOS'
         run: ditto -c -k --keepParent dist/QuotaTrack.app ${{ matrix.file }}
+      - name: Pack the Linux app  # a tarball keeps the file runnable, which a plain download wouldn't
+        if: runner.os == 'Linux'
+        run: tar -czf ${{ matrix.file }} -C dist QuotaTrack
 
       - uses: actions/upload-artifact@v4
         with:

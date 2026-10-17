@@ -12,6 +12,7 @@ the edge, right-click for options.
 Windows:  pythonw quotatrack.pyw          (no console window)
 macOS:    python3 quotatrack.pyw          (needs Python with Tk 8.6+: python.org's installer, or
                                       Homebrew's python plus `brew install python-tk`)
+Linux:    python3 quotatrack.pyw          (an X11 or XWayland desktop; Debian/Ubuntu: `sudo apt install python3-tk`)
 Demo:     add --demo to show sample figures
 """
 
@@ -507,6 +508,18 @@ def play_sound(event):
         elif IS_MAC:
             name = "Funk" if event == "waiting" else "Glass"
             subprocess.Popen(["afplay", f"/System/Library/Sounds/{name}.aiff"])
+        else:  # the desktop's own sound theme if it has the player for it, else the freedesktop sound files
+            import shutil
+            name = "dialog-warning" if event == "waiting" else "complete"
+            path = f"/usr/share/sounds/freedesktop/stereo/{name}.oga"
+            player = shutil.which("paplay") or shutil.which("pw-play")
+            if shutil.which("canberra-gtk-play"):
+                command = ["canberra-gtk-play", "-i", name]
+            elif player and os.path.isfile(path):
+                command = [player, path]
+            else:
+                return
+            subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
 
@@ -514,6 +527,8 @@ def play_sound(event):
 AUTOSTART_NAME = "QuotaTrack"
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _LAUNCH_AGENT = os.path.expanduser("~/Library/LaunchAgents/com.quotatrack.plist")
+_XDG_AUTOSTART = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "autostart",
+                              "quotatrack.desktop")
 
 
 def _launch_command():
@@ -530,7 +545,8 @@ def _launch_command():
 
 
 def autostart_enabled():
-    """Whether QuotaTrack starts when you sign in: your user's Run key on Windows, a LaunchAgent on macOS."""
+    """Whether QuotaTrack starts when you sign in: your user's Run key on Windows, a LaunchAgent on macOS, an XDG
+    autostart entry on Linux."""
     if IS_WIN:
         import winreg
         try:
@@ -539,7 +555,15 @@ def autostart_enabled():
             return True
         except OSError:
             return False
-    return IS_MAC and os.path.isfile(_LAUNCH_AGENT)
+    return os.path.isfile(_LAUNCH_AGENT if IS_MAC else _XDG_AUTOSTART)
+
+
+def _desktop_exec(args):
+    """A .desktop file's Exec line: each argument quoted, with the escapes the desktop entry spec asks for."""
+    def quote(arg):
+        arg = re.sub(r'(["`$\\])', r"\\\1", arg).replace("\\", "\\\\").replace("%", "%%")
+        return f'"{arg}"'
+    return " ".join(quote(a) for a in args)
 
 
 def set_autostart(on):
@@ -564,6 +588,15 @@ def set_autostart(on):
                                "KeepAlive": {"SuccessfulExit": False}, "ProcessType": "Interactive"}, f)
         elif os.path.isfile(_LAUNCH_AGENT):
             os.remove(_LAUNCH_AGENT)
+    else:
+        if on:
+            os.makedirs(os.path.dirname(_XDG_AUTOSTART), exist_ok=True)
+            with open(_XDG_AUTOSTART, "w", encoding="utf-8") as f:
+                f.write("[Desktop Entry]\nType=Application\nName=QuotaTrack\n"
+                        "Comment=Your AI usage limits, pinned to the edge of the screen\n"
+                        f"Exec={_desktop_exec(_launch_command())}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
+        elif os.path.isfile(_XDG_AUTOSTART):
+            os.remove(_XDG_AUTOSTART)
 
 
 def open_folder(path):
@@ -602,6 +635,104 @@ def mac_background_app():
             set_long(app, objc.sel_registerName(b"setActivationPolicy:"), 1)  # NSApplicationActivationPolicyAccessory
     except (OSError, AttributeError):
         pass
+
+
+class _XRectangle(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_short), ("y", ctypes.c_short), ("width", ctypes.c_ushort), ("height", ctypes.c_ushort)]
+
+
+_xlib = None
+
+
+def _x11(widget):
+    """Linux: (libX11, libXext, display) on a connection of QuotaTrack's own to the display Tk is on, or None
+    when the system libraries or the shape extension aren't there. Tk on Linux always draws through X (XWayland
+    on a Wayland desktop), and these libraries come with it, so nothing extra is installed."""
+    global _xlib
+    if _xlib is None:
+        _xlib = False
+        try:
+            import ctypes.util
+            x = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+            ext = ctypes.CDLL(ctypes.util.find_library("Xext") or "libXext.so.6")
+            x.XOpenDisplay.restype, x.XOpenDisplay.argtypes = ctypes.c_void_p, [ctypes.c_char_p]
+            x.XFlush.argtypes = [ctypes.c_void_p]
+            x.XDefaultRootWindow.restype, x.XDefaultRootWindow.argtypes = ctypes.c_ulong, [ctypes.c_void_p]
+            x.XInternAtom.restype, x.XInternAtom.argtypes = ctypes.c_ulong, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+            x.XGetWindowProperty.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_long,
+                                             ctypes.c_long, ctypes.c_int, ctypes.c_ulong,
+                                             ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_int),
+                                             ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_ulong),
+                                             ctypes.POINTER(ctypes.c_void_p)]
+            x.XFree.argtypes = [ctypes.c_void_p]
+            x.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                                     ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p),
+                                     ctypes.POINTER(ctypes.c_uint)]
+            ext.XShapeQueryExtension.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int),
+                                                 ctypes.POINTER(ctypes.c_int)]
+            ext.XShapeCombineRectangles.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
+                                                    ctypes.c_int, ctypes.POINTER(_XRectangle), ctypes.c_int,
+                                                    ctypes.c_int, ctypes.c_int]
+            display = x.XOpenDisplay(widget.winfo_screen().encode())
+            unused = ctypes.c_int()
+            if display and ext.XShapeQueryExtension(display, ctypes.byref(unused), ctypes.byref(unused)):
+                _xlib = (x, ext, display)
+        except (OSError, AttributeError, tk.TclError):
+            pass
+    return _xlib or None
+
+
+def x11_cut(win, rects):
+    """Linux: cut a window down to rects (x, y, w, h), so only those pixels show and take clicks."""
+    xlib = _x11(win)
+    if not xlib:
+        return
+    x, ext, display = xlib
+    win.update_idletasks()
+    win.winfo_pointerxy()  # a round trip on Tk's own connection, so the X server has the window before it's cut
+    # Tk puts each toplevel inside a wrapper window, and the wrapper is the one on the desktop that needs cutting
+    root, wrapper, children, count = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p(), ctypes.c_uint()
+    if not x.XQueryTree(display, win.winfo_id(), ctypes.byref(root), ctypes.byref(wrapper), ctypes.byref(children),
+                        ctypes.byref(count)):
+        return
+    if children.value:
+        x.XFree(children)
+    target = win.winfo_id() if wrapper.value == root.value else wrapper.value  # never the desktop itself
+    boxes = (_XRectangle * max(1, len(rects)))(*rects)
+    ext.XShapeCombineRectangles(display, target, 0, 0, 0, boxes, len(rects), 0, 0)  # ShapeBounding, ShapeSet
+    x.XFlush(display)
+
+
+def x11_work_area(widget):
+    """Linux: the desktop's work area (the screen minus its panels and docks) from _NET_WORKAREA, or None."""
+    xlib = _x11(widget)
+    if not xlib:
+        return None
+    x, _, display = xlib
+    atom = x.XInternAtom(display, b"_NET_WORKAREA", True)
+    if not atom:
+        return None
+    kind, fmt, count, after, data = ctypes.c_ulong(), ctypes.c_int(), ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p()
+    if x.XGetWindowProperty(display, x.XDefaultRootWindow(display), atom, 0, 4, False, 6,  # XA_CARDINAL
+                            ctypes.byref(kind), ctypes.byref(fmt), ctypes.byref(count), ctypes.byref(after),
+                            ctypes.byref(data)) != 0 or not data.value:
+        return None
+    try:
+        if fmt.value != 32 or count.value < 4:
+            return None
+        left, top, w, h = ctypes.cast(data, ctypes.POINTER(ctypes.c_long))[:4]
+        return (left, top, left + w, top + h) if w > 0 and h > 0 else None
+    finally:
+        x.XFree(data)
+
+
+def linux_font():
+    """A clean sans-serif that's on most Linux desktops, or whatever fontconfig picks for Helvetica."""
+    def pick():
+        families = set(tkfont.families())
+        return next((f for f in ("Inter", "Cantarell", "Ubuntu", "Noto Sans", "DejaVu Sans") if f in families),
+                    "Helvetica")
+    return cached("linux font", pick)
 
 
 def win32_style(win, rounded):
@@ -926,7 +1057,41 @@ class WinShape(_ShapeBase):
             u.ReleaseDC(None, screen)
 
 
-Shape = WinShape if IS_WIN else MacShape
+class X11Shape(_ShapeBase):
+    """Linux: X has no per-pixel alpha for a Tk window, so the black window is cut (X's shape extension) to the
+    pixels at least half covered. The curves get hard edges rather than smooth ones, but nothing square shows
+    around them; without the extension the window stays a plain black rectangle."""
+
+    def __init__(self, root):
+        super().__init__(root)
+        self.win.configure(bg=BG)
+        self.win.withdraw()
+        self.rects, self.cut = [], None
+
+    def _render(self, w, h, alpha):
+        rects = []
+        for yy in range(h):
+            row, xx = alpha[yy * w:(yy + 1) * w], 0
+            while xx < w:  # each run of covered pixels in this row is one rectangle
+                if row[xx] < 128:
+                    xx += 1
+                    continue
+                start = xx
+                while xx < w and row[xx] >= 128:
+                    xx += 1
+                if rects and rects[-1][0] == start and rects[-1][2] == xx - start and rects[-1][1] + rects[-1][3] == yy:
+                    rects[-1] = (start, rects[-1][1], xx - start, rects[-1][3] + 1)  # same run as the row above
+                else:
+                    rects.append((start, yy, xx - start, 1))
+        self.rects = rects
+
+    def _present(self, x, y, w, h):
+        if self.cut is not self.rects:
+            self.cut = self.rects
+            x11_cut(self.win, self.rects)
+
+
+Shape = WinShape if IS_WIN else MacShape if IS_MAC else X11Shape
 
 
 def shape(fn, *key):
@@ -948,6 +1113,10 @@ def work_area(root):
         rect = wintypes.RECT()
         if ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0):  # SPI_GETWORKAREA
             return rect.left, rect.top, rect.right, rect.bottom
+    elif not IS_MAC:
+        area = x11_work_area(root)
+        if area:
+            return area
     top = 25 if IS_MAC else 0
     return 0, top, root.winfo_screenwidth(), root.winfo_screenheight() - (70 if IS_MAC else 0)
 
@@ -1202,9 +1371,7 @@ class App:
                 toggle("Auto-hide", lambda: cfg["autohide"], self.set_autohide, "Tuck it away until the pointer comes"),
                 toggle("Dock on left edge", lambda: cfg["edge"] == "left", self.set_left_edge),
                 toggle("Sounds", lambda: cfg["sounds"], self.set_sounds, "When an AI finishes or needs you")]
-        if IS_WIN or IS_MAC:
-            rows.append(toggle("Start with Windows" if IS_WIN else "Start at login", autostart_enabled,
-                               self.set_autostart))
+        rows.append(toggle("Start with Windows" if IS_WIN else "Start at login", autostart_enabled, self.set_autostart))
         live = []
         for p in self.providers:  # every AI on this PC, ring or not, so a hidden one can be switched on here
             if not p.installed:
@@ -1262,7 +1429,8 @@ class App:
         """A UI font sized in pixels (negative size), so it matches the layout on either system."""
         if IS_WIN:
             return tkfont.Font(family="Segoe UI Semibold" if bold else "Segoe UI", size=-self.px(size))
-        return tkfont.Font(family="Helvetica Neue", size=-self.px(size), weight="bold" if bold else "normal")
+        family = "Helvetica Neue" if IS_MAC else linux_font()
+        return tkfont.Font(family=family, size=-self.px(size), weight="bold" if bold else "normal")
 
     def bind_menu(self, widget):
         widget.bind("<Button-3>", self.show_menu)
@@ -1743,7 +1911,7 @@ class App:
         """The packaged app is meant to always be there: the first time it runs it starts itself at login
         (turn that off in the menu and it stays off). If it already starts at login, point that at this copy,
         in case the app was moved."""
-        if not (IS_WIN or IS_MAC) or "--demo" in sys.argv:
+        if "--demo" in sys.argv:
             return
         if FROZEN and not self.cfg["autostart_offered"]:
             self.cfg["autostart_offered"] = True

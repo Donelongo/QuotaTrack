@@ -29,8 +29,12 @@ if sys.platform == "win32":
     DB = os.path.join(os.environ.get("APPDATA", ""), "Cursor", "User", "globalStorage", "state.vscdb")
     _LOGO = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "cursor", "resources", "app",
                          "resources", "win32", "code_150x150.png")
-else:
+elif sys.platform == "darwin":
     DB = os.path.expanduser("~/Library/Application Support/Cursor/User/globalStorage/state.vscdb")
+    _LOGO = ""
+else:
+    DB = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+                      "Cursor", "User", "globalStorage", "state.vscdb")
     _LOGO = ""
 ICON = _LOGO if os.path.isfile(_LOGO) else None  # Cursor's own logo, from its install
 ICON_DROP_DARK = True  # its tile is a grey cube on a dark square: keep the cube

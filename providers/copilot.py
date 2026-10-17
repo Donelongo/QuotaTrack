@@ -26,7 +26,8 @@ def _installed_logo():
     import glob
     roots = [os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Microsoft VS Code"),
              os.path.join(os.environ.get("PROGRAMFILES", ""), "Microsoft VS Code"),
-             "/Applications/Visual Studio Code.app/Contents/Resources"]
+             "/Applications/Visual Studio Code.app/Contents/Resources",
+             "/usr/share/code", "/opt/visual-studio-code", "/snap/code/current/usr/share/code"]  # Linux packages
     found = []
     for root in roots:
         for pattern in ("*/resources/app/extensions/copilot/assets/copilot.png",

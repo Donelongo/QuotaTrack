@@ -7,6 +7,7 @@ a slim rail on the edge of your screen.**
 
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white)](#install)
 [![macOS](https://img.shields.io/badge/macOS-beta-lightgrey?logo=apple&logoColor=white)](#install)
+[![Linux](https://img.shields.io/badge/Linux-beta-lightgrey?logo=linux&logoColor=white)](#install)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![No dependencies](https://img.shields.io/badge/dependencies-none-22c55e)](#how-it-works)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -61,12 +62,15 @@ nothing else to install, not even Python.
 - **macOS** *(Apple silicon)*: download `QuotaTrack-macOS.zip`, unzip it and drag **QuotaTrack** into
   **Applications**. The app isn't signed, so the first time, right-click it and choose **Open** (or allow it under
   **System Settings → Privacy & Security**).
+- **Linux** *(x86-64, beta)*: download `QuotaTrack-Linux.tar.gz`, unpack it (`tar -xzf QuotaTrack-Linux.tar.gz`)
+  and run `./QuotaTrack`. It needs an X11 desktop, or a Wayland one with XWayland (GNOME, KDE and most others
+  have it).
 
 The app runs in the background: no window in the taskbar, no Dock icon, just the rail. The first time it runs it
 sets itself to **start when you sign in** (and restarts itself if it ever crashes on macOS), so it's always
 there. Turn that off in the right-click menu if you'd rather not, and choose **Quit QuotaTrack** there to close
-it. Its settings are kept in `%APPDATA%\QuotaTrack` on Windows and `~/Library/Application Support/QuotaTrack`
-on macOS.
+it. Its settings are kept in `%APPDATA%\QuotaTrack` on Windows, `~/Library/Application Support/QuotaTrack`
+on macOS and `~/.config/QuotaTrack` on Linux.
 
 ### Run from source
 
@@ -92,13 +96,26 @@ python3 quotatrack.pyw
 Use Python from [python.org](https://www.python.org/downloads/), or Homebrew's Python with
 `brew install python-tk`.
 
+**Linux** *(beta)*
+
+```bash
+git clone https://github.com/Donelongo/QuotaTrack.git
+cd QuotaTrack
+python3 quotatrack.pyw
+```
+
+If Python says there's no `tkinter`, install it: `sudo apt install python3-tk` (Debian, Ubuntu), `sudo dnf
+install python3-tkinter` (Fedora) or `sudo pacman -S tk` (Arch). It needs an X11 desktop, or Wayland with
+XWayland. The rail's curved ends have crisp rather than smooth edges on Linux. Sounds use `canberra-gtk-play` or
+`paplay` when installed, and clicking a waiting session brings its window forward only if `wmctrl` is installed.
+
 **Start it automatically:** right-click the rail and turn on **Start with Windows** (**Start at login** on
-macOS).
+macOS and Linux, which adds `~/.config/autostart/quotatrack.desktop`).
 
 Want to look around first? Run `python quotatrack.pyw --demo` to see it with sample figures.
 
 **Build the app yourself:** `pip install pyinstaller`, then `pyinstaller packaging/QuotaTrack.spec`; it lands in
-`dist/`. Pushing a `v*` tag builds both apps on GitHub and attaches them to a release.
+`dist/`. Pushing a `v*` tag builds the Windows, macOS and Linux apps on GitHub and attaches them to a release.
 
 ## Using it
 
@@ -191,7 +208,7 @@ provider is ordinary Python running on your computer, so only add ones you wrote
 - `custom_ais.py` is the **Add an AI…** form.
 - The curved ends of the rail and cards are separate windows with per-pixel transparency
   (`UpdateLayeredWindow` on Windows, a transparent Tk window on macOS), so they blend into whatever is behind
-  them.
+  them. On Linux they're black windows cut to shape with X's shape extension.
 - Usage is read every 30 seconds and activity every 2 seconds, on background threads.
 
 ## Contributing
